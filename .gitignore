@@ -2,5 +2,6 @@ build/
 sdkconfig
 sdkconfig.old
 managed_components/
+assets/fonts/source/
 .vscode/
 .idea/
