@@ -6,6 +6,32 @@
 
 ## Unreleased
 
+- Added the AI Passport sync app (replaces the demo menu on boot): a paging
+  UI (Recording / Today's schedule / Todo) driven by UP/DOWN to flip pages, OK
+  to enter a page, UP/DOWN for in-page navigation, and OK double-press (or
+  long-press) to return to paging. Includes a Chinese font (Noto Sans CJK SC
+  subset) for schedule/todo titles.
+- Added an Android companion app under `android/` that implements the
+  `ai-passport-sync` BLE client: scan/connect to the device, time sync, push
+  today's schedule and todo, receive the live recording stream and save it to
+  phone storage, and echo todo toggles both ways. A `build-android.yml`
+  workflow packages the APK (unit tests + `assembleDebug`) and publishes the
+  artifact on tags.
+- Recording page streams the ES8311 microphone (16 kHz / 16-bit / mono) as
+  IMA-ADPCM over BLE to the phone in real time (~8 KB/s); the phone stores the
+  file and finalizes it on `AUDIO_END`.
+- Defined the `ai-passport-sync` BLE service (GATT TX notify / RX write) with a
+  documented frame protocol for time sync, today's schedule, todo, todo
+  toggles, recording upload, and status — see
+  `docs/software-design/passport-sync-app.md` (bilingual). The Android
+  companion app implements this protocol to sync with the device.
+- Added host-testable cores with host tests: `pager_core` (paging state
+  machine), `adpcm_ima` (IMA ADPCM encoder), and `sync_proto` (frame codec,
+  schedule/todo store, local-time conversion). `tools/validate.sh --static`
+  now runs all four host-test binaries.
+- Kept the demo pages (`demo_*.c`) in the tree as reference but removed them
+  from the firmware build.
+
 - Made mini-program BLE install compatibility a template-level invariant: fixed
   protected `cardid`/Recovery partitions, retained the five-second UP-key
   Recovery boot hook, and added CI validation for merged-image structure,

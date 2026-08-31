@@ -6,6 +6,25 @@
 
 ## Unreleased
 
+- 新增 AI Passport 同步应用（开机即进入，取代演示菜单）：翻页式多界面
+  （录音 / 当天日程 / 任务），上/下键翻页、确定键单击进入页面、页内上/下操作、
+  确定键双击（或长按）退回翻页模式。内置中文字库（Noto Sans CJK SC 子集）
+  用于渲染日程/Todo 标题。
+- 新增 Android 配套 App（`android/` 目录），实现 `ai-passport-sync` BLE 客户端：
+  扫描连接设备、对时、推送当天日程与 Todo、接收录音实时流并保存到手机存储、
+  双向回传 Todo 勾选。新增 `build-android.yml` 工作流打 APK（单元测试 +
+  `assembleDebug`），tag 推送自动发布产物。
+- 录音页把 ES8311 麦克风（16 kHz / 16-bit / 单声道）实时以 IMA-ADPCM 压缩
+  后经 BLE 上传手机（约 8 KB/s），手机保存文件并在收到 `AUDIO_END` 后定稿。
+- 定义 `ai-passport-sync` BLE 服务（GATT TX 通知 / RX 写入）及帧协议：对时、
+  当天日程、Todo、勾选回传、录音上传、状态推送。协议文档见
+  `docs/software-design/passport-sync-app.zh_CN.md`（中英双语）。Android
+  配套 App 按该协议即可与设备同步。
+- 新增可主机测试的纯 C 核心并配套测试：`pager_core`（翻页状态机）、
+  `adpcm_ima`（IMA ADPCM 编码）、`sync_proto`（帧编解码、日程/Todo 存储、
+  本地时间换算）。`tools/validate.sh --static` 现在会跑全部四个主机测试。
+- 演示页代码（`demo_*.c`）保留在仓库中作参考，但已从固件构建中移除。
+
 - 将小程序 BLE 安装兼容提升为二创模板强制契约：固定保护 `cardid`/Recovery 分区，
   保留上键持续 5 秒进入 Recovery 的 bootloader hook，并在 CI 强制校验合并镜像结构、
   分区表 MD5/范围、3 MB 应用上限和保护分区数据不入包。

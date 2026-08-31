@@ -34,14 +34,23 @@ The tracked `dependencies.lock` pins Managed Component resolution. After changin
 
 Firmware validation uses a fresh temporary build directory and an isolated `sdkconfig` generated from the tracked defaults. It does not consume or overwrite a developer's root `sdkconfig`, and it copies only the verified merged image to `build/FoloToy-AI-Passport-full.bin`. The gate also enforces the [mini-program BLE compatibility contract](ble-recovery-compatibility.md): protected partition addresses, application size, partition-table MD5, absence of protected payload data, and the Recovery bootloader hook.
 
-The baseline also has a hardware-independent logic test:
+The baseline also has hardware-independent logic tests (compiled and run by
+`./tools/validate.sh --static` on every PR and locally):
 
 ```bash
 cc -std=c11 -Wall -Wextra -Werror -Imain \
-  tests/test_ui_pixel_math.c main/ui_pixel_math.c \
-  -o /tmp/test_ui_pixel_math
-/tmp/test_ui_pixel_math
+  tests/test_ui_pixel_math.c main/ui_pixel_math.c -o /tmp/test_ui_pixel_math
+cc -std=c11 -Wall -Wextra -Werror -Imain \
+  tests/test_pager_core.c main/pager_core.c -o /tmp/test_pager_core
+cc -std=c11 -Wall -Wextra -Werror -lm -Imain \
+  tests/test_adpcm_ima.c main/adpcm_ima.c -o /tmp/test_adpcm_ima
+cc -std=c11 -Wall -Wextra -Werror -Imain \
+  tests/test_sync_proto.c main/sync_proto.c -o /tmp/test_sync_proto
 ```
+
+`test_pager_core` covers the paging/in-page state machine, `test_adpcm_ima`
+the IMA ADPCM encoder, and `test_sync_proto` the BLE frame codec, schedule/todo
+store, and local-time conversion.
 
 Use the unified validation entry point:
 
