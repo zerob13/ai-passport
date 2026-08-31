@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AiPassport" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">#0872C9</item>
+        <item name="android:statusBarColor">#0872C9</item>
+    </style>
+</resources>

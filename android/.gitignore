@@ -1,0 +1,10 @@
+# android/.gitignore —— Android 工程本地产物。
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
