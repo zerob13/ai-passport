@@ -111,6 +111,17 @@ class SyncProtocolTest {
     }
 
     @Test
+    fun scheduleTitleDoesNotSplitUtf8CodePoint() {
+        val title = "a".repeat(59) + "中"
+        val frame = RxMessages.scheduleAdd(ScheduleItem(1, 0, 60, title))!!
+        val payload = FrameCodec.decode(frame, 0, frame.size)!!.payload
+        val encodedTitle = payload.copyOfRange(7, payload.size)
+
+        assertEquals(59, payload[6].toInt())
+        assertEquals("a".repeat(59), encodedTitle.toString(Charsets.UTF_8))
+    }
+
+    @Test
     fun todoAddMessage() {
         val frame = RxMessages.todoAdd(TodoItem(3, true, "Call B"))!!
         val decoded = FrameCodec.decode(frame, 0, frame.size)!!

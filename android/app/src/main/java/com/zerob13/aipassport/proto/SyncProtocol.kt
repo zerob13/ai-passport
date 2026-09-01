@@ -137,6 +137,15 @@ object FrameCodec {
 
 /** 手机→设备 消息构造(纯 Kotlin,可 JVM 测试) */
 object RxMessages {
+    private fun titleBytes(title: String): ByteArray {
+        val bytes = title.encodeToByteArray()
+        if (bytes.size <= SyncProtocol.MAX_TITLE) return bytes
+
+        var length = SyncProtocol.MAX_TITLE
+        while (length > 0 && (bytes[length].toInt() and 0xC0) == 0x80) length--
+        return bytes.copyOf(length)
+    }
+
     /** HELLO: ver u8, unix_time u32, tz_min i16 */
     fun hello(unixTime: Long, tzOffsetMin: Int): ByteArray? {
         val p = ByteArray(7)
@@ -151,8 +160,8 @@ object RxMessages {
 
     /** SCHEDULE_ADD: id u16, start u16, end u16, title_len u8, title */
     fun scheduleAdd(item: ScheduleItem): ByteArray? {
-        val t = item.title.encodeToByteArray()
-        val titleLen = minOf(t.size, SyncProtocol.MAX_TITLE)
+        val t = titleBytes(item.title)
+        val titleLen = t.size
         val p = ByteArray(7 + titleLen)
         FrameCodec.putU16(p, 0, item.id)
         FrameCodec.putU16(p, 2, item.startMin)
@@ -167,8 +176,8 @@ object RxMessages {
 
     /** TODO_ADD: id u16, done u8, title_len u8, title */
     fun todoAdd(item: TodoItem): ByteArray? {
-        val t = item.title.encodeToByteArray()
-        val titleLen = minOf(t.size, SyncProtocol.MAX_TITLE)
+        val t = titleBytes(item.title)
+        val titleLen = t.size
         val p = ByteArray(4 + titleLen)
         FrameCodec.putU16(p, 0, item.id)
         p[2] = if (item.done) 1 else 0

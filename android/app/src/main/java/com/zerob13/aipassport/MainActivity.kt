@@ -2,6 +2,8 @@
 package com.zerob13.aipassport
 
 import android.Manifest
+import android.app.AlertDialog
+import android.app.TimePickerDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -9,8 +11,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -26,6 +32,7 @@ import com.zerob13.aipassport.proto.DeviceStatus
 import com.zerob13.aipassport.proto.ScheduleItem
 import com.zerob13.aipassport.proto.TodoItem
 import java.io.File
+import java.util.Calendar
 
 class MainActivity : AppCompatActivity(), SyncListener {
 
@@ -146,42 +153,85 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     // ---------------- 新增日程 / Todo ----------------
     private fun showAddScheduleDialog() {
-        val input = android.widget.EditText(this).apply {
-            hint = "时间 开始-结束 标题,例如 14:30-15:30 会议"
+        val now = Calendar.getInstance()
+        var startMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        var endMin = (startMin + 60).coerceAtMost(23 * 60 + 59)
+        if (startMin == endMin) {
+            startMin = 22 * 60
+            endMin = 23 * 60
         }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("新增日程")
-            .setView(input)
-            .setPositiveButton("添加") { _, _ ->
-                val text = input.text.toString().trim()
-                parseScheduleText(text)?.let {
-                    repo.addSchedule(it.first, it.second, it.third)
-                    if (ble.isConnected) ble.pushSnapshot(repo.loadSchedule(), repo.loadTodos())
-                    refreshLists()
-                } ?: toast("格式: 开始-结束 标题")
+
+        val padding = (24 * resources.displayMetrics.density).toInt()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, 0, padding, 0)
+        }
+        val startButton = Button(this)
+        val endButton = Button(this)
+        val titleInput = EditText(this).apply {
+            hint = "标题"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 2
+        }
+
+        fun refreshTimeButtons() {
+            startButton.text = "开始时间  ${formatMinutes(startMin)}"
+            endButton.text = "结束时间  ${formatMinutes(endMin)}"
+        }
+        startButton.setOnClickListener {
+            showTimePicker(startMin) { selected ->
+                startMin = selected
+                if (endMin <= startMin) endMin = (startMin + 60).coerceAtMost(23 * 60 + 59)
+                refreshTimeButtons()
             }
+        }
+        endButton.setOnClickListener {
+            showTimePicker(endMin) { selected ->
+                endMin = selected
+                refreshTimeButtons()
+            }
+        }
+        refreshTimeButtons()
+        form.addView(startButton)
+        form.addView(endButton)
+        form.addView(titleInput)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("新增日程")
+            .setView(form)
+            .setPositiveButton("保存", null)
             .setNegativeButton("取消", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleInput.text.toString().trim()
+                when {
+                    title.isEmpty() -> toast("请输入日程标题")
+                    endMin <= startMin -> toast("结束时间必须晚于开始时间")
+                    else -> {
+                        repo.addSchedule(startMin, endMin, title)
+                        pushSnapshotIfConnected()
+                        refreshLists()
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
-    private fun parseScheduleText(text: String): Triple<Int, Int, String>? {
-        val parts = text.split(" ", limit = 2)
-        if (parts.size < 2) return null
-        val times = parts[0].split("-")
-        if (times.size != 2) return null
-        val start = parseClock(times[0]) ?: return null
-        val end = parseClock(times[1]) ?: return null
-        return Triple(start, end, parts[1])
+    private fun showTimePicker(initialMin: Int, onSelected: (Int) -> Unit) {
+        TimePickerDialog(
+            this,
+            { _, hour, minute -> onSelected(hour * 60 + minute) },
+            initialMin / 60,
+            initialMin % 60,
+            true,
+        ).show()
     }
 
-    private fun parseClock(s: String): Int? {
-        val p = s.split(":")
-        if (p.size != 2) return null
-        val h = p[0].toIntOrNull() ?: return null
-        val m = p[1].toIntOrNull() ?: return null
-        if (h !in 0..23 || m !in 0..59) return null
-        return h * 60 + m
-    }
+    private fun formatMinutes(minutes: Int): String =
+        String.format("%02d:%02d", minutes / 60, minutes % 60)
 
     private fun showAddTodoDialog() {
         val input = android.widget.EditText(this).apply { hint = "任务内容" }
@@ -192,9 +242,39 @@ class MainActivity : AppCompatActivity(), SyncListener {
                 val text = input.text.toString().trim()
                 if (text.isNotEmpty()) {
                     repo.addTodo(text)
-                    if (ble.isConnected) ble.pushSnapshot(repo.loadSchedule(), repo.loadTodos())
+                    pushSnapshotIfConnected()
                     refreshLists()
                 }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun pushSnapshotIfConnected() {
+        if (ble.isConnected) ble.pushSnapshot(repo.loadSchedule(), repo.loadTodos())
+    }
+
+    private fun confirmDeleteSchedule(item: ScheduleItem) {
+        AlertDialog.Builder(this)
+            .setTitle("删除日程")
+            .setMessage("确定删除「${item.title}」？")
+            .setPositiveButton("删除") { _, _ ->
+                repo.deleteSchedule(item.id)
+                pushSnapshotIfConnected()
+                refreshLists()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun confirmDeleteTodo(item: TodoItem) {
+        AlertDialog.Builder(this)
+            .setTitle("删除任务")
+            .setMessage("确定删除「${item.title}」？")
+            .setPositiveButton("删除") { _, _ ->
+                repo.deleteTodo(item.id)
+                pushSnapshotIfConnected()
+                refreshLists()
             }
             .setNegativeButton("取消", null)
             .show()
@@ -243,6 +323,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private class ScheduleVH(v: View) : RecyclerView.ViewHolder(v) {
         val time = v.findViewById<android.widget.TextView>(R.id.item_time)
         val title = v.findViewById<android.widget.TextView>(R.id.item_title)
+        val delete = v.findViewById<Button>(R.id.item_delete)
     }
 
     private inner class ScheduleAdapter : RecyclerView.Adapter<ScheduleVH>() {
@@ -260,12 +341,14 @@ class MainActivity : AppCompatActivity(), SyncListener {
                 it.startMin / 60, it.startMin % 60, it.endMin / 60, it.endMin % 60
             )
             h.title.text = it.title
+            h.delete.setOnClickListener { confirmDeleteSchedule(it) }
         }
     }
 
     private class TodoVH(v: View) : RecyclerView.ViewHolder(v) {
         val check = v.findViewById<android.widget.CheckBox>(R.id.item_check)
         val title = v.findViewById<android.widget.TextView>(R.id.item_title)
+        val delete = v.findViewById<Button>(R.id.item_delete)
     }
 
     private inner class TodoAdapter : RecyclerView.Adapter<TodoVH>() {
@@ -277,17 +360,21 @@ class MainActivity : AppCompatActivity(), SyncListener {
         override fun onCreateViewHolder(p: ViewGroup, vt: Int) =
             TodoVH(layoutInflater.inflate(R.layout.item_todo, p, false))
         override fun onBindViewHolder(h: TodoVH, pos: Int) {
-            val it = items[pos]
-            h.check.isChecked = it.done
-            h.title.text = it.title
-            h.title.alpha = if (it.done) 0.5f else 1f
+            val item = items[pos]
+            h.check.setOnCheckedChangeListener(null)
+            h.check.isChecked = item.done
+            h.title.text = item.title
+            h.title.alpha = if (item.done) 0.5f else 1f
             h.check.setOnCheckedChangeListener { _, checked ->
-                if (checked != it.done) {
-                    repo.toggleTodo(it.id)
-                    ble.sendTodo(repo.loadTodos().first { t -> t.id == it.id })
+                if (checked != item.done) {
+                    item.done = checked
+                    repo.applyTodoToggle(item.id, checked)
+                    if (ble.isConnected) ble.sendTodo(item)
+                    h.title.alpha = if (checked) 0.5f else 1f
                     updateCounters()
                 }
             }
+            h.delete.setOnClickListener { confirmDeleteTodo(item) }
         }
     }
 
@@ -309,9 +396,5 @@ class MainActivity : AppCompatActivity(), SyncListener {
             h.name.text = it.fileName
             h.size.text = String.format("%.1f KB", it.sizeBytes / 1024.0)
         }
-    }
-
-    companion object {
-        private val dummy = arrayOf<ScheduleItem>() // 保持导入
     }
 }

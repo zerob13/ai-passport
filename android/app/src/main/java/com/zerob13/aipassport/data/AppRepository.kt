@@ -63,6 +63,13 @@ class AppRepository(context: Context) {
         return item
     }
 
+    fun deleteSchedule(id: Int): Boolean {
+        val list = loadSchedule()
+        val removed = list.removeAll { it.id == id }
+        if (removed) saveSchedule(list)
+        return removed
+    }
+
     // ---------------- Todo ----------------
     fun loadTodos(): MutableList<TodoItem> {
         val list = mutableListOf<TodoItem>()
@@ -103,12 +110,11 @@ class AppRepository(context: Context) {
         return item
     }
 
-    fun toggleTodo(id: Int) {
+    fun deleteTodo(id: Int): Boolean {
         val list = loadTodos()
-        list.find { it.id == id }?.let {
-            it.done = !it.done
-            saveTodos(list)
-        }
+        val removed = list.removeAll { it.id == id }
+        if (removed) saveTodos(list)
+        return removed
     }
 
     /** 设备端勾选回传时应用(后写者胜)。 */

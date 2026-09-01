@@ -98,6 +98,22 @@ int main(void)
     assert(st.sched[0].title_len == SYNC_MAX_TITLE);
     assert(st.sched[0].title[SYNC_MAX_TITLE] == '\0');
 
+    // UTF-8 truncation must drop an incomplete multibyte code point.
+    uint8_t add_utf8[3 + 7 + 62] = {0};
+    add_utf8[0] = 0xA5; add_utf8[1] = SYNC_RX_SCHEDULE_ADD; add_utf8[2] = 7 + 62;
+    add_utf8[3] = 10; add_utf8[4] = 0;
+    add_utf8[9] = 62;
+    memset(add_utf8 + 10, 'a', 59);
+    add_utf8[69] = 0xE4; add_utf8[70] = 0xB8; add_utf8[71] = 0xAD;
+    assert(sync_proto_rx(&st, add_utf8, sizeof(add_utf8)) == SYNC_RX_SCHEDULE_ADD);
+    const sync_sched_item_t *utf8_item = NULL;
+    for (uint16_t i = 0; i < st.sched_count; i++) {
+        if (st.sched[i].id == 10) utf8_item = &st.sched[i];
+    }
+    assert(utf8_item != NULL);
+    assert(utf8_item->title_len == 59);
+    assert(utf8_item->title[59] == '\0');
+
     // 容量上限:满 32 条后丢弃
     for (int i = 0; i < 40; i++) {
         uint8_t a[3 + 7 + 1];

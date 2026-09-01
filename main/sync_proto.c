@@ -23,10 +23,14 @@ void sync_store_init(sync_store_t *st)
     memset(st, 0, sizeof(*st));
 }
 
-// 标题拷贝:截断到 SYNC_MAX_TITLE 字节(协议层只截断,不拒绝)。
+// Copy a title without splitting a UTF-8 code point at the protocol limit.
 static void copy_title(char *dst, uint8_t *len, const uint8_t *src, uint8_t n)
 {
     uint8_t m = n < SYNC_MAX_TITLE ? n : SYNC_MAX_TITLE;
+
+    if (m < n) {
+        while (m > 0 && (src[m] & 0xC0u) == 0x80u) m--;
+    }
     memcpy(dst, src, m);
     dst[m] = '\0';
     *len = m;

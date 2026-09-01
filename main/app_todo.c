@@ -131,7 +131,7 @@ void app_todo_enter(void)
         row->title = ui_pixel_label(row->row, "", &ui_font_cjk_16, UI_INK);
         lv_obj_set_pos(row->title, 31, 2);
         lv_obj_set_size(row->title, 164, 22);
-        lv_label_set_long_mode(row->title, LV_LABEL_LONG_WRAP);
+        lv_label_set_long_mode(row->title, LV_LABEL_LONG_MODE_DOTS);
         row->meta = ui_pixel_label(row->row, "", &lv_font_montserrat_14,
                                    UI_SUBTLE);
         lv_obj_set_pos(row->meta, 31, 20);
