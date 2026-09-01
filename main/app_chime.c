@@ -113,7 +113,7 @@ size_t app_chime_render(app_chime_t chime, size_t offset,
 bool app_chime_play(app_chime_t chime)
 {
     if (bsp_audio_set_format(APP_CHIME_SAMPLE_RATE, 16, 2) != ESP_OK) return false;
-    bsp_audio_set_volume(80);
+    bsp_audio_set_volume(100);
 
     int16_t mono[128];
     int16_t stereo[256];
