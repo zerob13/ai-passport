@@ -45,14 +45,14 @@ typedef struct {
     uint16_t start_min;          // 当日 0 点起分钟数
     uint16_t end_min;
     uint8_t  title_len;
-    char     title[SYNC_MAX_TITLE];
+    char     title[SYNC_MAX_TITLE + 1];
 } sync_sched_item_t;
 
 typedef struct {
     uint16_t id;
     uint8_t  done;               // 0/1
     uint8_t  title_len;
-    char     title[SYNC_MAX_TITLE];
+    char     title[SYNC_MAX_TITLE + 1];
 } sync_todo_item_t;
 
 typedef struct {

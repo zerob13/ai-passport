@@ -3,6 +3,7 @@
 #pragma once
 
 #include "bsp_button.h"
+#include "lvgl.h"
 #include "pager_core.h"
 
 #ifdef __cplusplus
@@ -26,7 +27,7 @@ extern const app_page_t APP_PAGES[PAGER_PAGE_COUNT];
 void app_pager_start(void);
 
 // 全局按键回调(注册给 bsp_button;运行于按键任务,内部自加 LVGL 锁)。
-void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev);
+void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *user);
 
 // ---- 共享电池指示(每个页面可挂一个,注册后由全局定时器刷新)----
 // 返回根对象。页面退出删屏前必须先 app_battery_unregister()。

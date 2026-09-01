@@ -53,8 +53,7 @@ static int rx_access(uint16_t conn_handle, uint16_t attr_handle,
                      struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn_handle; (void)attr_handle; (void)arg;
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR &&
-        ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR_NO_RSP) {
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 

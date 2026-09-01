@@ -222,8 +222,9 @@ static void on_sync_evt(sync_ble_evt_t ev)
 // 按键分发(全局)
 // ============================================================================
 
-void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev)
+void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
 {
+    (void)user;
     if (!bsp_lvgl_lock(500)) return;
     if (s_scr == NULL && s_pager.mode == PAGER_MODE_PAGING) {
         // 翻页界面尚未建好(初始化早期),忽略本次按键

@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Fixed firmware builds and prevented 60-byte schedule/todo titles from
+  writing their terminator past the allocated buffer.
 - Added the AI Passport sync app (replaces the demo menu on boot): a paging
   UI (Recording / Today's schedule / Todo) driven by UP/DOWN to flip pages, OK
   to enter a page, UP/DOWN for in-page navigation, and OK double-press (or

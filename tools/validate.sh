@@ -32,9 +32,9 @@ run_static_checks() {
         tests/test_pager_core.c main/pager_core.c \
         -o "${test_dir}/test_pager_core"
     "${test_dir}/test_pager_core"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -lm -Imain \
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_adpcm_ima.c main/adpcm_ima.c \
-        -o "${test_dir}/test_adpcm_ima"
+        -o "${test_dir}/test_adpcm_ima" -lm
     "${test_dir}/test_adpcm_ima"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_sync_proto.c main/sync_proto.c \
