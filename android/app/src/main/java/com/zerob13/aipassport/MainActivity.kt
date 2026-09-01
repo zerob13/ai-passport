@@ -335,13 +335,16 @@ class MainActivity : AppCompatActivity(), SyncListener {
         override fun onCreateViewHolder(p: ViewGroup, vt: Int) =
             ScheduleVH(layoutInflater.inflate(R.layout.item_schedule, p, false))
         override fun onBindViewHolder(h: ScheduleVH, pos: Int) {
-            val it = items[pos]
+            val item = items[pos]
             h.time.text = String.format(
                 "%02d:%02d - %02d:%02d",
-                it.startMin / 60, it.startMin % 60, it.endMin / 60, it.endMin % 60
+                item.startMin / 60,
+                item.startMin % 60,
+                item.endMin / 60,
+                item.endMin % 60,
             )
-            h.title.text = it.title
-            h.delete.setOnClickListener { confirmDeleteSchedule(it) }
+            h.title.text = item.title
+            h.delete.setOnClickListener { confirmDeleteSchedule(item) }
         }
     }
 
