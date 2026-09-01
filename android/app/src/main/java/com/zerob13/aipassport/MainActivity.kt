@@ -164,6 +164,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
         scheduleAdapter.submitList(schedule)
         todoAdapter.submitList(todos)
         recordingAdapter.submitList(recordings)
+        binding.recordingCount.text = String.format(Locale.US, "%02d", recordings.size)
         binding.recordingEmpty.visibility = if (recordings.isEmpty()) View.VISIBLE else View.GONE
         updateCounters()
     }
@@ -172,9 +173,19 @@ class MainActivity : AppCompatActivity(), SyncListener {
         val todos = repo.loadTodos()
         val done = todos.count { it.done }
         val (pastDays, futureDays) = repo.calendarRange()
-        binding.scheduleCount.text =
-            "${repo.loadCalendarEvents().size} 项 · 过去 $pastDays 天 / 未来 $futureDays 天"
-        binding.todoCount.text = "$done / ${todos.size} 完成"
+        binding.scheduleCount.text = String.format(
+            Locale.SIMPLIFIED_CHINESE,
+            "%02d · -%d/+%d 天",
+            repo.loadCalendarEvents().size,
+            pastDays,
+            futureDays,
+        )
+        binding.todoCount.text = String.format(
+            Locale.SIMPLIFIED_CHINESE,
+            "%02d/%02d 完成",
+            done,
+            todos.size,
+        )
     }
 
     // ---------------- Calendar import / Todo ----------------
@@ -339,10 +350,14 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     // ---------------- SyncListener ----------------
     override fun onConnectionChanged(connected: Boolean) {
-        binding.btnConnect.text = if (connected) "断开" else "连接设备"
+        binding.btnConnect.text = if (connected) "断开 PASSPORT" else "连接 PASSPORT"
         binding.statusText.text = if (connected) "已连接 FoloPassport" else "未连接"
         binding.llMain.alpha = 1f
-        if (!connected) binding.recordingLive.visibility = View.GONE
+        if (!connected) {
+            binding.recordingLive.visibility = View.GONE
+            binding.recordingEmpty.visibility =
+                if (repo.loadRecordings().isEmpty()) View.VISIBLE else View.GONE
+        }
         if (connected) {
             ble.pushSnapshot(repo.loadTodaySchedule(), repo.loadTodos())
         }
@@ -363,6 +378,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     override fun onRecordingStarted() {
         binding.statusText.text = "正在接收录音..."
         binding.recordingLive.visibility = View.VISIBLE
+        binding.recordingEmpty.visibility = View.GONE
         binding.recordingLiveProgress.text = "00:00 · 0.0 KB"
     }
 
@@ -385,6 +401,8 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     override fun onError(message: String) {
         binding.recordingLive.visibility = View.GONE
+        binding.recordingEmpty.visibility =
+            if (repo.loadRecordings().isEmpty()) View.VISIBLE else View.GONE
         binding.statusText.text = message
         toast(message)
     }

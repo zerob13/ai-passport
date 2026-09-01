@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.AiPassport" parent="Theme.Material3.Light.NoActionBar">
-        <item name="colorPrimary">#0872C9</item>
-        <item name="android:statusBarColor">#0872C9</item>
+        <item name="colorPrimary">@color/passport_ink</item>
+        <item name="colorOnPrimary">@color/passport_surface</item>
+        <item name="colorSecondary">@color/passport_red</item>
+        <item name="colorSurface">@color/passport_paper</item>
+        <item name="android:colorAccent">@color/passport_ink</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:navigationBarColor">@color/passport_paper</item>
+        <item name="android:statusBarColor">@color/passport_paper</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

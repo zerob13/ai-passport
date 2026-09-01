@@ -4,18 +4,21 @@
     android:viewportWidth="48"
     android:viewportHeight="48">
     <path
-        android:fillColor="#1689E8"
+        android:fillColor="@color/passport_paper"
         android:pathData="M0,0h48v48h-48z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M14,12h20v6h-20z" />
+        android:fillColor="@color/passport_ink"
+        android:pathData="M7,4h34v40h-34z" />
     <path
-        android:fillColor="#F4F4EA"
-        android:pathData="M14,12h20v4h-20z" />
+        android:fillColor="@color/passport_surface"
+        android:pathData="M9,6h30v36h-30z" />
     <path
-        android:fillColor="#FFB23E"
-        android:pathData="M18,28h12v8h-12z" />
+        android:fillColor="@color/passport_red"
+        android:pathData="M12,10h4v4h-4z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,36h24v4h-24z" />
+        android:fillColor="@color/passport_ink"
+        android:pathData="M19,10h17v3h-17zM12,18h24v7h-24zM12,29h24v5h-24zM12,37h24v2h-24z" />
+    <path
+        android:fillColor="@color/passport_surface"
+        android:pathData="M13,30h22v3h-22z" />
 </vector>

@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#1689E8</color>
+    <color name="passport_ink">#0A0A0A</color>
+    <color name="passport_paper">#F6F6F3</color>
+    <color name="passport_surface">#FFFFFF</color>
+    <color name="passport_subtle">#737373</color>
+    <color name="passport_line">#C7C7C3</color>
+    <color name="passport_red">#E43B2F</color>
+    <color name="ic_launcher_background">#F6F6F3</color>
 </resources>

@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Matched the Android companion app to the Passport firmware with paper-white
+  surfaces, monochrome hierarchy, fine outlined panels, compact section
+  metadata, restrained red status accents, and a matching launcher icon.
 - Fixed noisy system-chime playback by opening the ES8311 DAC path as stereo,
   selecting both I2S slots, duplicating each mono PCM sample to both slots, and
   playing the chimes at full codec output volume.
