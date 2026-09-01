@@ -132,8 +132,9 @@ internal class WavRecording private constructor(
             runCatching { output.close() }
             closed = true
         }
-        if (uri != null) {
-            runCatching { context.contentResolver.delete(uri, null, null) }
+        val contentUri = uri
+        if (contentUri != null) {
+            runCatching { context.contentResolver.delete(contentUri, null, null) }
         } else {
             file?.delete()
         }
