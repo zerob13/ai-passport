@@ -113,11 +113,12 @@ internal class WavRecording private constructor(
             output.write(PcmWav.header(dataBytes, sampleRate))
             output.close()
             closed = true
-            if (uri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentUri = uri
+            if (contentUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
                     put(MediaStore.Audio.Media.IS_PENDING, 0)
                 }
-                check(context.contentResolver.update(uri, values, null, null) == 1)
+                check(context.contentResolver.update(contentUri, values, null, null) == 1)
             }
             true
         } catch (_: Exception) {
