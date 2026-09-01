@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Redesigned the firmware launcher, recording, days, and todo screens around
+  the DayRing visual language: paper-white surfaces, monochrome typography,
+  fine borders, compact status metadata, cassette reels, date badges, task
+  rows, and a persistent three-section footer adapted to the 240×320 display.
 - Fixed firmware builds and prevented 60-byte schedule/todo titles from
   writing their terminator past the allocated buffer.
 - Added the AI Passport sync app (replaces the demo menu on boot): a paging

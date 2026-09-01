@@ -25,48 +25,53 @@ lv_obj_t *ui_pixel_label(lv_obj_t *parent, const char *text,
     return label;
 }
 
-static void add_cloud(lv_obj_t *parent, int x, int y)
-{
-    block(parent, x + 1, y + 7, 43, 10, UI_INK);
-    block(parent, x + 5, y + 4, 35, 10, 0xFFFFFF);
-    block(parent, x + 12, y, 10, 9, 0xFFFFFF);
-    block(parent, x + 27, y + 1, 9, 8, 0xFFFFFF);
-}
-
 lv_obj_t *ui_pixel_screen_create(const char *title)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(UI_SKY), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(UI_PAPER), 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
 
-    add_cloud(scr, 188, 8);
-    block(scr, 0, 286, 240, 34, UI_GRASS);
-    block(scr, 0, 286, 240, 4, 0xA7D93E);
-    for (int x = 0; x < 240; x += 30) {
-        block(scr, x, 312, 18, 8, UI_GRASS_DARK);
-        block(scr, x + 18, 316, 12, 4, 0x75452E);
-    }
+    block(scr, 10, 8, 4, 4, UI_RED);
+    lv_obj_t *brand = ui_pixel_label(scr, "AI / PASSPORT", &lv_font_montserrat_14,
+                                     UI_SUBTLE);
+    lv_obj_set_pos(brand, 20, 0);
+    lv_obj_set_style_text_letter_space(brand, 1, 0);
 
-    block(scr, 9, 12, 151, 33, UI_INK);
-    lv_obj_t *plate = block(scr, 5, 8, 151, 33, UI_PAPER);
-    lv_obj_set_style_border_color(plate, lv_color_hex(UI_INK), 0);
-    lv_obj_set_style_border_width(plate, 3, 0);
-    lv_obj_t *heading = ui_pixel_label(plate, title, &lv_font_montserrat_20, UI_INK);
-    lv_obj_center(heading);
+    lv_obj_t *heading = ui_pixel_label(scr, title, &lv_font_montserrat_20, UI_INK);
+    lv_obj_set_pos(heading, 10, 24);
+    lv_obj_set_style_text_letter_space(heading, 1, 0);
+    block(scr, 10, 54, 220, 1, UI_INK);
     return scr;
 }
 
 lv_obj_t *ui_pixel_panel_create(lv_obj_t *parent, int x, int y, int w, int h,
                                 uint32_t color)
 {
-    block(parent, x + 5, y + 6, w, h, UI_INK);
     lv_obj_t *panel = block(parent, x, y, w, h, color);
     lv_obj_set_style_border_color(panel, lv_color_hex(UI_INK), 0);
-    lv_obj_set_style_border_width(panel, 4, 0);
-    lv_obj_set_style_pad_all(panel, 7, 0);
+    lv_obj_set_style_border_width(panel, 1, 0);
+    lv_obj_set_style_radius(panel, 6, 0);
+    lv_obj_set_style_pad_all(panel, 6, 0);
     return panel;
+}
+
+lv_obj_t *ui_pixel_nav_create(lv_obj_t *parent, int active_index)
+{
+    static const char *tabs[] = { "REC", "DAYS", "TODO" };
+    lv_obj_t *nav = block(parent, 0, 286, 240, 34, UI_SURFACE);
+    block(nav, 0, 0, 240, 1, UI_INK);
+
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *label = ui_pixel_label(nav, tabs[i], &lv_font_montserrat_14,
+                                         i == active_index ? UI_INK : UI_SUBTLE);
+        lv_obj_set_width(label, 80);
+        lv_obj_set_pos(label, i * 80, 5);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        if (i == active_index) block(nav, i * 80 + 37, 27, 6, 2, UI_INK);
+    }
+    return nav;
 }
 
 lv_obj_t *ui_pixel_mascot_create(lv_obj_t *parent, int x, int y)

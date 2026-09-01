@@ -7,7 +7,6 @@
 #include "bsp_display.h"      // bsp_lvgl_lock/unlock
 #include "bsp_battery.h"
 #include "sync_ble.h"
-#include "ui_font_cjk_16.h"
 #include "ui_pixel.h"
 #include "lvgl.h"
 #include "esp_log.h"
@@ -19,17 +18,17 @@ static const char *TAG = "app_pager";
 // 页面注册表(实现 app_pager.h 声明)。
 const app_page_t APP_PAGES[PAGER_PAGE_COUNT] = {
     {
-        .name = "RECORDING", .sub = "录音", .hint = "OK 开始/停止录音,手机实时保存",
+        .name = "RECORDING", .sub = "VOICE CAPTURE", .hint = "STREAM TO PHONE",
         .enter = app_record_enter, .exit = app_record_exit,
         .key = app_record_key, .refresh = app_record_refresh,
     },
     {
-        .name = "SCHEDULE", .sub = "当天日程", .hint = "上下键翻看今天的安排",
+        .name = "DAYS", .sub = "DAILY SCHEDULE", .hint = "TODAY AT A GLANCE",
         .enter = app_schedule_enter, .exit = app_schedule_exit,
         .key = app_schedule_key, .refresh = app_schedule_refresh,
     },
     {
-        .name = "TODO", .sub = "任务", .hint = "上下键选择,OK 勾选完成",
+        .name = "TODO", .sub = "TASK LIST", .hint = "SYNCED WITH PHONE",
         .enter = app_todo_enter, .exit = app_todo_exit,
         .key = app_todo_key, .refresh = app_todo_refresh,
     },
@@ -38,13 +37,13 @@ const app_page_t APP_PAGES[PAGER_PAGE_COUNT] = {
 // ---- 翻页模式 UI 状态 ----
 static pager_t s_pager;
 static lv_obj_t *s_scr;              // 翻页屏
-static lv_obj_t *s_card;
-static lv_obj_t *s_mascot;
-static lv_obj_t *s_card_title;       // 卡片内控件
-static lv_obj_t *s_card_sub;
-static lv_obj_t *s_card_hint;
-static lv_obj_t *s_card_idx;
+static lv_obj_t *s_rows[PAGER_PAGE_COUNT];
+static lv_obj_t *s_row_titles[PAGER_PAGE_COUNT];
+static lv_obj_t *s_row_subs[PAGER_PAGE_COUNT];
+static lv_obj_t *s_mode_label;
 static lv_obj_t *s_link_label;
+static lv_obj_t *s_nav;
+static lv_obj_t *s_paging_bat;
 
 // ---- 共享电池 ----
 #define APP_BATTERY_MAX 4
@@ -58,11 +57,10 @@ static lv_timer_t *s_bat_timer;
 
 lv_obj_t *app_battery_create(lv_obj_t *parent)
 {
-    // 天空区顶部右侧(云朵下方),避免遮住云装饰。
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(root, 168, 40);
-    lv_obj_set_size(root, 66, 18);
+    lv_obj_set_pos(root, 164, 1);
+    lv_obj_set_size(root, 68, 18);
     lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(root, 0, 0);
     lv_obj_set_style_pad_all(root, 0, 0);
@@ -72,28 +70,26 @@ lv_obj_t *app_battery_create(lv_obj_t *parent)
 
     lv_obj_t *body = lv_obj_create(root);
     lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(body, 40, 2);
-    lv_obj_set_size(body, 26, 14);
-    lv_obj_set_style_radius(body, 0, 0);
-    lv_obj_set_style_border_width(body, 2, 0);
+    lv_obj_set_pos(body, 43, 3);
+    lv_obj_set_size(body, 21, 11);
+    lv_obj_set_style_radius(body, 2, 0);
+    lv_obj_set_style_border_width(body, 1, 0);
     lv_obj_set_style_border_color(body, lv_color_hex(UI_INK), 0);
     lv_obj_set_style_bg_color(body, lv_color_hex(UI_PAPER), 0);
-    lv_obj_set_style_pad_all(body, 2, 0);
-    // 电池帽
+    lv_obj_set_style_pad_all(body, 1, 0);
     lv_obj_t *cap = lv_obj_create(root);
     lv_obj_remove_flag(cap, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(cap, 65, 5);
-    lv_obj_set_size(cap, 3, 8);
+    lv_obj_set_pos(cap, 64, 6);
+    lv_obj_set_size(cap, 2, 5);
     lv_obj_set_style_radius(cap, 0, 0);
     lv_obj_set_style_border_width(cap, 0, 0);
     lv_obj_set_style_bg_color(cap, lv_color_hex(UI_INK), 0);
     lv_obj_set_style_pad_all(cap, 0, 0);
-    // 电量条
     lv_obj_t *fill = lv_obj_create(body);
     lv_obj_remove_flag(fill, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_pos(fill, 2, 2);
-    lv_obj_set_size(fill, 18, 6);
-    lv_obj_set_style_radius(fill, 0, 0);
+    lv_obj_set_pos(fill, 1, 1);
+    lv_obj_set_size(fill, 15, 5);
+    lv_obj_set_style_radius(fill, 1, 0);
     lv_obj_set_style_border_width(fill, 0, 0);
     lv_obj_set_style_bg_color(fill, lv_color_hex(UI_GRASS_DARK), 0);
     lv_obj_set_style_pad_all(fill, 0, 0);
@@ -128,11 +124,10 @@ static void battery_draw_one(lv_obj_t *w)
         return;
     }
     lv_label_set_text_fmt(lbl, "%d%%", s_bat_soc);
-    uint32_t color = s_bat_soc > 50 ? UI_GRASS_DARK :
+    uint32_t color = s_bat_soc > 50 ? UI_INK :
                      (s_bat_soc > 20 ? UI_YELLOW : UI_RED);
     lv_obj_set_style_bg_color(fill, lv_color_hex(color), 0);
-    // 条宽随电量
-    lv_obj_set_width(fill, (18 * s_bat_soc) / 100);
+    lv_obj_set_width(fill, (15 * s_bat_soc) / 100);
 }
 
 static void battery_tick(lv_timer_t *timer)
@@ -159,45 +154,60 @@ static void battery_tick(lv_timer_t *timer)
 
 static void card_refresh(void)
 {
-    const app_page_t *pg = &APP_PAGES[s_pager.page];
-    lv_label_set_text(s_card_title, pg->name);
-    lv_label_set_text(s_card_sub, pg->sub);
-    lv_label_set_text(s_card_hint, pg->hint);
-    lv_label_set_text_fmt(s_card_idx, "%d / %d",
+    for (int i = 0; i < PAGER_PAGE_COUNT; i++) {
+        bool active = i == (int)s_pager.page;
+        lv_obj_set_style_bg_color(s_rows[i],
+                                  lv_color_hex(active ? UI_INK : UI_SURFACE), 0);
+        lv_obj_set_style_border_color(s_rows[i], lv_color_hex(UI_INK), 0);
+        lv_obj_set_style_text_color(s_row_titles[i],
+                                    lv_color_hex(active ? UI_SURFACE : UI_INK), 0);
+        lv_obj_set_style_text_color(s_row_subs[i],
+                                    lv_color_hex(active ? UI_LINE : UI_SUBTLE), 0);
+    }
+    lv_label_set_text_fmt(s_mode_label, "MODE %d / %d",
                           (int)s_pager.page + 1, PAGER_PAGE_COUNT);
-    ui_pixel_set_selected(s_card, true, true);
     lv_label_set_text(s_link_label,
-                      sync_ble_is_connected() ? "已连接手机" : "等待手机连接");
+                      sync_ble_is_connected() ? "PHONE CONNECTED" : "WAITING FOR PHONE");
+    if (s_nav) lv_obj_delete(s_nav);
+    s_nav = ui_pixel_nav_create(s_scr, (int)s_pager.page);
 }
 
 static void paging_build(void)
 {
-    s_scr = ui_pixel_screen_create("AI PASSPORT");
-    app_battery_create(s_scr);
+    s_scr = ui_pixel_screen_create("PASSPORT");
+    s_paging_bat = app_battery_create(s_scr);
 
-    s_card = ui_pixel_panel_create(s_scr, 22, 64, 196, 172, UI_PAPER);
-    lv_obj_t *plate = lv_obj_create(s_card);
-    lv_obj_remove_flag(plate, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(plate, 52, 52);
-    lv_obj_center(plate);
-    lv_obj_set_style_radius(plate, 0, 0);
-    lv_obj_set_style_border_width(plate, 0, 0);
-    lv_obj_set_style_bg_color(plate, lv_color_hex(UI_YELLOW), 0);
-    lv_obj_set_style_pad_all(plate, 0, 0);
+    s_mode_label = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_SUBTLE);
+    lv_obj_set_width(s_mode_label, 100);
+    lv_obj_set_pos(s_mode_label, 130, 30);
+    lv_obj_set_style_text_align(s_mode_label, LV_TEXT_ALIGN_RIGHT, 0);
 
-    s_card_title = ui_pixel_label(s_card, "", &lv_font_montserrat_20, UI_INK);
-    s_card_sub = ui_pixel_label(s_card, "", &ui_font_cjk_16, UI_INK);
-    s_card_hint = ui_pixel_label(s_card, "", &ui_font_cjk_16, 0x5A6A73);
-    s_card_idx = ui_pixel_label(s_card, "", &lv_font_montserrat_14, 0x5A6A73);
-    lv_obj_align(s_card_title, LV_ALIGN_TOP_MID, 0, 68);
-    lv_obj_align(s_card_sub, LV_ALIGN_TOP_MID, 0, 97);
-    lv_obj_align(s_card_hint, LV_ALIGN_TOP_MID, 0, 126);
-    lv_obj_align(s_card_idx, LV_ALIGN_TOP_MID, 0, 148);
+    for (int i = 0; i < PAGER_PAGE_COUNT; i++) {
+        s_rows[i] = ui_pixel_panel_create(s_scr, 10, 64 + i * 58, 220, 50,
+                                          UI_SURFACE);
+        lv_obj_set_style_pad_all(s_rows[i], 0, 0);
+        s_row_titles[i] = ui_pixel_label(s_rows[i], APP_PAGES[i].name,
+                                         &lv_font_montserrat_20, UI_INK);
+        lv_obj_set_pos(s_row_titles[i], 10, 2);
+        s_row_subs[i] = ui_pixel_label(s_rows[i], APP_PAGES[i].sub,
+                                       &lv_font_montserrat_14, UI_SUBTLE);
+        lv_obj_set_pos(s_row_subs[i], 10, 26);
+        lv_obj_t *index = ui_pixel_label(s_rows[i], "", &lv_font_montserrat_14,
+                                         UI_SUBTLE);
+        lv_label_set_text_fmt(index, "0%d", i + 1);
+        lv_obj_set_pos(index, 188, 13);
+    }
 
-    s_link_label = ui_pixel_label(s_card, "", &ui_font_cjk_16, 0x1779B2);
-    lv_obj_align(s_link_label, LV_ALIGN_BOTTOM_MID, 0, -10);
+    s_link_label = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_SUBTLE);
+    lv_obj_set_width(s_link_label, 220);
+    lv_obj_set_pos(s_link_label, 10, 244);
+    lv_obj_set_style_text_align(s_link_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t *hint = ui_pixel_label(s_scr, "UP / DOWN MODE  ·  OK OPEN",
+                                    &lv_font_montserrat_14, UI_INK);
+    lv_obj_set_width(hint, 220);
+    lv_obj_set_pos(hint, 10, 264);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
 
-    s_mascot = ui_pixel_mascot_create(s_scr, 101, 244);
     card_refresh();
     lv_screen_load(s_scr);
 }
@@ -209,7 +219,7 @@ static void on_sync_evt(sync_ble_evt_t ev)
     if (s_pager.mode == PAGER_MODE_PAGING) {
         if (s_link_label) {
             lv_label_set_text(s_link_label,
-                              sync_ble_is_connected() ? "已连接手机" : "等待手机连接");
+                              sync_ble_is_connected() ? "PHONE CONNECTED" : "WAITING FOR PHONE");
         }
     } else if (APP_PAGES[s_pager.page].refresh) {
         APP_PAGES[s_pager.page].refresh();
@@ -257,15 +267,16 @@ void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
     pager_act_t act = pager_handle(&s_pager, pev);
     switch (act) {
     case PAGER_ACT_FLIP:
-        if (s_mascot) ui_pixel_mascot_jump(s_mascot);
         card_refresh();
         break;
     case PAGER_ACT_ENTER:
-        if (s_mascot) ui_pixel_mascot_jump(s_mascot);
+        app_battery_unregister(s_paging_bat);
+        s_paging_bat = NULL;
         lv_obj_delete(s_scr);
-        s_scr = NULL; s_card = NULL; s_mascot = NULL;
-        s_card_title = s_card_sub = s_card_hint = s_card_idx = NULL;
-        s_link_label = NULL;
+        s_scr = s_mode_label = s_link_label = s_nav = NULL;
+        memset(s_rows, 0, sizeof(s_rows));
+        memset(s_row_titles, 0, sizeof(s_row_titles));
+        memset(s_row_subs, 0, sizeof(s_row_subs));
         APP_PAGES[s_pager.page].enter();
         break;
     case PAGER_ACT_BACK:

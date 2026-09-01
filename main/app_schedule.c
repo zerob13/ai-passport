@@ -1,6 +1,5 @@
-// main/app_schedule.c —— 当天日程页。
-// 一条日程一屏(卡片):时间段、标题、位置 i/N、下一条预览。
-// 上/下 = 上一条/下一条(循环);OK 单击 v1 无操作;数据由手机 BLE 推送。
+// main/app_schedule.c — Compact DayRing-style view of today's schedule.
+// Up/down moves the selected item. Data is supplied by the phone over BLE.
 #include "app_schedule.h"
 
 #include "app_pager.h"
@@ -10,122 +9,162 @@
 #include "lvgl.h"
 
 #include <stdio.h>
-#include <string.h>
+
+#define DAYS_ROW_H    47
+#define DAYS_MAX_ROWS 4
+
+typedef struct {
+    lv_obj_t *row;
+    lv_obj_t *badge;
+    lv_obj_t *hour;
+    lv_obj_t *minute;
+    lv_obj_t *title;
+    lv_obj_t *meta;
+} day_row_t;
 
 static lv_obj_t *s_scr;
 static lv_obj_t *s_bat;
-static lv_obj_t *s_date_lbl;    // 头部日期
-static lv_obj_t *s_time_lbl;    // 时间段
-static lv_obj_t *s_title_lbl;   // 标题(可换行)
-static lv_obj_t *s_idx_lbl;     // i/N
-static lv_obj_t *s_next_lbl;    // 下一条预览
-static lv_obj_t *s_foot_lbl;    // 连接状态
+static lv_obj_t *s_date_lbl;
+static lv_obj_t *s_count_lbl;
+static lv_obj_t *s_foot_lbl;
+static day_row_t s_rows[DAYS_MAX_ROWS];
 static int s_idx;
+static int s_win;
 
-static const char *WEEK_CN[7] = { "周日", "周一", "周二", "周三", "周四", "周五", "周六" };
+static const char *WEEK_EN[7] = {
+    "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"
+};
 
-// 0=周日..6=周六(1970-01-01 是周四)
+static lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h,
+                     uint32_t color, int border, int radius)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(obj, x, y);
+    lv_obj_set_size(obj, w, h);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_border_color(obj, lv_color_hex(UI_INK), 0);
+    lv_obj_set_style_border_width(obj, border, 0);
+    lv_obj_set_style_radius(obj, radius, 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    return obj;
+}
+
+// Returns Sunday=0 ... Saturday=6. 1970-01-01 was a Thursday.
 static int weekday_of(uint32_t unix_time, int16_t tz_min)
 {
     int64_t days = ((int64_t)unix_time + (int64_t)tz_min * 60) / 86400;
     return (int)((days + 4) % 7 + 7) % 7;
 }
 
-static void card_render(void)
-{
-    const sync_store_t *st = app_store();
-    const sync_sched_item_t *it = sync_sched_at(st, (uint16_t)s_idx);
-
-    if (!it) {
-        lv_label_set_text(s_time_lbl, "--:--");
-        lv_label_set_text(s_title_lbl, "暂无日程");
-        lv_label_set_text(s_idx_lbl, "");
-        lv_label_set_text(s_next_lbl, "等待手机 App 同步当天日程");
-        return;
-    }
-    char t[32];
-    snprintf(t, sizeof(t), "%02d:%02d - %02d:%02d",
-             it->start_min / 60, it->start_min % 60,
-             it->end_min / 60, it->end_min % 60);
-    lv_label_set_text(s_time_lbl, t);
-    lv_label_set_text(s_title_lbl,
-                      it->title_len ? it->title : "无标题日程");
-    lv_label_set_text_fmt(s_idx_lbl, "%d / %u", s_idx + 1, (unsigned)st->sched_count);
-
-    const sync_sched_item_t *nx = sync_sched_at(st, (uint16_t)(s_idx + 1));
-    if (nx) {
-        static char nxt[96];
-        snprintf(nxt, sizeof(nxt), "下一个: %02d:%02d  %s",
-                 nx->start_min / 60, nx->start_min % 60,
-                 nx->title_len ? nx->title : "");
-        lv_label_set_text(s_next_lbl, nxt);
-    } else if (st->sched_count > 1) {
-        lv_label_set_text(s_next_lbl, "已到最后一条,继续按 下 回到开头");
-    } else {
-        lv_label_set_text(s_next_lbl, "今日仅此一条");
-    }
-}
-
 static void date_render(void)
 {
     const sync_store_t *st = app_store();
     if (!st->time_set) {
-        lv_label_set_text(s_date_lbl, "今天 (等手机对时)");
-        return;
+        lv_label_set_text(s_date_lbl, "TIME NOT SET");
+    } else {
+        uint32_t now = 0;
+        int month = 0;
+        int day = 0;
+        sync_ble_now(&now);
+        sync_proto_local_time(now, st->tz_min, NULL, &month, &day, NULL, NULL);
+        lv_label_set_text_fmt(s_date_lbl, "%02d/%02d %s", month, day,
+                              WEEK_EN[weekday_of(now, st->tz_min)]);
     }
-    uint32_t now = 0;
-    sync_ble_now(&now);
-    int y, mo, d;
-    sync_proto_local_time(now, st->tz_min, &y, &mo, &d, NULL, NULL);
-    int wd = weekday_of(now, st->tz_min);
-    static char buf[48];
-    snprintf(buf, sizeof(buf), "%d月%d日 %s", mo, d, WEEK_CN[wd]);
-    lv_label_set_text(s_date_lbl, buf);
+    lv_label_set_text_fmt(s_count_lbl, "%02u ITEMS", (unsigned)st->sched_count);
+}
+
+static void rows_rebuild(void)
+{
+    const sync_store_t *st = app_store();
+    int shown = (int)st->sched_count - s_win;
+    if (shown > DAYS_MAX_ROWS) shown = DAYS_MAX_ROWS;
+
+    for (int i = 0; i < DAYS_MAX_ROWS; i++) {
+        day_row_t *row = &s_rows[i];
+        if (i >= shown) {
+            lv_obj_add_flag(row->row, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+
+        const sync_sched_item_t *item = sync_sched_at(st, (uint16_t)(s_win + i));
+        bool active = s_win + i == s_idx;
+        lv_obj_set_style_bg_color(row->badge,
+                                  lv_color_hex(active ? UI_INK : UI_SURFACE), 0);
+        lv_obj_set_style_text_color(row->hour,
+                                    lv_color_hex(active ? UI_SURFACE : UI_INK), 0);
+        lv_obj_set_style_text_color(row->minute,
+                                    lv_color_hex(active ? UI_SURFACE : UI_INK), 0);
+        lv_label_set_text_fmt(row->hour, "%02u", (unsigned)(item->start_min / 60));
+        lv_label_set_text_fmt(row->minute, "%02u", (unsigned)(item->start_min % 60));
+        lv_label_set_text(row->title, item->title_len ? item->title : "无标题日程");
+        lv_label_set_text_fmt(row->meta, "END %02u:%02u  ·  %02d/%02u",
+                              (unsigned)(item->end_min / 60),
+                              (unsigned)(item->end_min % 60),
+                              s_win + i + 1, (unsigned)st->sched_count);
+        lv_obj_remove_flag(row->row, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (st->sched_count == 0) {
+        day_row_t *row = &s_rows[0];
+        lv_obj_set_style_bg_color(row->badge, lv_color_hex(UI_SURFACE), 0);
+        lv_obj_set_style_text_color(row->hour, lv_color_hex(UI_INK), 0);
+        lv_obj_set_style_text_color(row->minute, lv_color_hex(UI_INK), 0);
+        lv_label_set_text(row->hour, "--");
+        lv_label_set_text(row->minute, "--");
+        lv_label_set_text(row->title, "暂无日程");
+        lv_label_set_text(row->meta, "SYNC FROM PHONE");
+        lv_obj_remove_flag(row->row, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void app_schedule_enter(void)
 {
-    s_scr = ui_pixel_screen_create("SCHEDULE");
+    s_scr = ui_pixel_screen_create("DAYS");
     s_bat = app_battery_create(s_scr);
 
-    s_date_lbl = ui_pixel_label(s_scr, "", &ui_font_cjk_16, 0x1779B2);
-    lv_obj_set_pos(s_date_lbl, 18, 46);
+    s_date_lbl = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_SUBTLE);
+    lv_obj_set_width(s_date_lbl, 120);
+    lv_obj_set_pos(s_date_lbl, 110, 18);
+    lv_obj_set_style_text_align(s_date_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+    s_count_lbl = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_INK);
+    lv_obj_set_width(s_count_lbl, 120);
+    lv_obj_set_pos(s_count_lbl, 110, 36);
+    lv_obj_set_style_text_align(s_count_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 
-    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 18, 64, 204, 172, UI_PAPER);
+    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 62, 220, 190, UI_SURFACE);
+    lv_obj_set_style_pad_all(panel, 0, 0);
+    for (int i = 0; i < DAYS_MAX_ROWS; i++) {
+        day_row_t *row = &s_rows[i];
+        row->row = box(panel, 0, i * DAYS_ROW_H, 218, DAYS_ROW_H,
+                       UI_SURFACE, 0, 0);
+        if (i > 0) box(row->row, 0, 0, 218, 1, UI_LINE, 0, 0);
+        row->badge = box(row->row, 6, 5, 46, 36, UI_SURFACE, 1, 6);
+        row->hour = ui_pixel_label(row->badge, "", &lv_font_montserrat_14, UI_INK);
+        lv_obj_set_width(row->hour, 46);
+        lv_obj_set_pos(row->hour, 0, -1);
+        lv_obj_set_style_text_align(row->hour, LV_TEXT_ALIGN_CENTER, 0);
+        row->minute = ui_pixel_label(row->badge, "", &lv_font_montserrat_14, UI_INK);
+        lv_obj_set_width(row->minute, 46);
+        lv_obj_set_pos(row->minute, 0, 16);
+        lv_obj_set_style_text_align(row->minute, LV_TEXT_ALIGN_CENTER, 0);
+        row->title = ui_pixel_label(row->row, "", &ui_font_cjk_16, UI_INK);
+        lv_obj_set_pos(row->title, 62, 1);
+        lv_obj_set_size(row->title, 150, 22);
+        lv_label_set_long_mode(row->title, LV_LABEL_LONG_WRAP);
+        row->meta = ui_pixel_label(row->row, "", &lv_font_montserrat_14, UI_SUBTLE);
+        lv_obj_set_pos(row->meta, 62, 24);
+    }
 
-    s_time_lbl = ui_pixel_label(panel, "", &lv_font_montserrat_20, UI_INK);
-    lv_obj_set_pos(s_time_lbl, 16, 18);
-
-    s_title_lbl = ui_pixel_label(panel, "", &ui_font_cjk_16, UI_INK);
-    lv_obj_set_width(s_title_lbl, 176);
-    lv_obj_set_style_text_align(s_title_lbl, LV_TEXT_ALIGN_LEFT, 0);
-    lv_label_set_long_mode(s_title_lbl, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(s_title_lbl, 16, 60);
-
-    lv_obj_t *rule = lv_obj_create(panel);
-    lv_obj_set_size(rule, 176, 2);
-    lv_obj_set_pos(rule, 14, 118);
-    lv_obj_set_style_border_width(rule, 0, 0);
-    lv_obj_set_style_bg_color(rule, lv_color_hex(0xC9D6DC), 0);
-    lv_obj_set_style_pad_all(rule, 0, 0);
-
-    s_idx_lbl = ui_pixel_label(panel, "", &lv_font_montserrat_14, 0x5A6A73);
-    lv_obj_set_pos(s_idx_lbl, 16, 130);
-
-    s_next_lbl = ui_pixel_label(panel, "", &ui_font_cjk_16, 0x5A6A73);
-    lv_obj_set_width(s_next_lbl, 176);
-    lv_obj_set_style_text_align(s_next_lbl, LV_TEXT_ALIGN_LEFT, 0);
-    lv_label_set_long_mode(s_next_lbl, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(s_next_lbl, 16, 146);
-
-    s_foot_lbl = ui_pixel_label(s_scr, "", &ui_font_cjk_16, 0x1779B2);
-    lv_obj_align(s_foot_lbl, LV_ALIGN_BOTTOM_MID, 0, -26);
+    s_foot_lbl = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_INK);
+    lv_obj_set_width(s_foot_lbl, 220);
+    lv_obj_set_pos(s_foot_lbl, 10, 263);
+    lv_obj_set_style_text_align(s_foot_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    ui_pixel_nav_create(s_scr, 1);
 
     s_idx = 0;
-    date_render();
-    card_render();
-    lv_label_set_text(s_foot_lbl,
-                      sync_ble_is_connected() ? "已连接手机" : "等待手机连接");
+    s_win = 0;
+    app_schedule_refresh();
     lv_screen_load(s_scr);
 }
 
@@ -133,13 +172,20 @@ void app_schedule_refresh(void)
 {
     if (!s_scr) return;
     const sync_store_t *st = app_store();
-    if (st->sched_count == 0) s_idx = 0;
-    if (s_idx >= (int)st->sched_count) s_idx = (int)st->sched_count - 1;
-    if (s_idx < 0) s_idx = 0;
+    if (st->sched_count == 0) {
+        s_idx = 0;
+        s_win = 0;
+    } else {
+        if (s_idx >= (int)st->sched_count) s_idx = (int)st->sched_count - 1;
+        if (s_idx < 0) s_idx = 0;
+        if (s_idx < s_win) s_win = s_idx;
+        if (s_idx >= s_win + DAYS_MAX_ROWS) s_win = s_idx - DAYS_MAX_ROWS + 1;
+    }
     date_render();
-    card_render();
+    rows_rebuild();
     lv_label_set_text(s_foot_lbl,
-                      sync_ble_is_connected() ? "已连接手机" : "等待手机连接");
+                      sync_ble_is_connected() ? "UP / DOWN SELECT  ·  2X BACK"
+                                              : "WAITING FOR PHONE");
 }
 
 void app_schedule_key(bsp_btn_t btn, bsp_btn_ev_t ev)
@@ -147,12 +193,15 @@ void app_schedule_key(bsp_btn_t btn, bsp_btn_ev_t ev)
     if (ev != BSP_BTN_CLICK) return;
     const sync_store_t *st = app_store();
     if (st->sched_count == 0) return;
-    if (btn == BSP_BTN_UP) {
-        s_idx = (s_idx + (int)st->sched_count - 1) % (int)st->sched_count;
-        card_render();
-    } else if (btn == BSP_BTN_DOWN) {
-        s_idx = (s_idx + 1) % (int)st->sched_count;
-        card_render();
+
+    if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) {
+        int count = (int)st->sched_count;
+        s_idx = btn == BSP_BTN_UP ? (s_idx + count - 1) % count
+                                  : (s_idx + 1) % count;
+        if (s_idx < s_win) s_win = s_idx;
+        if (s_idx >= s_win + DAYS_MAX_ROWS) s_win = s_idx - DAYS_MAX_ROWS + 1;
+        if (s_idx == 0) s_win = 0;
+        rows_rebuild();
     }
 }
 
@@ -163,6 +212,6 @@ void app_schedule_exit(void)
         s_bat = NULL;
         lv_obj_delete(s_scr);
         s_scr = NULL;
-        s_date_lbl = s_time_lbl = s_title_lbl = s_idx_lbl = s_next_lbl = s_foot_lbl = NULL;
+        s_date_lbl = s_count_lbl = s_foot_lbl = NULL;
     }
 }

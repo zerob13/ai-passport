@@ -4,8 +4,11 @@
 
 #define UI_SKY        0x1689E8
 #define UI_SKY_DARK   0x0872C9
-#define UI_INK        0x17202A
-#define UI_PAPER      0xF4F4EA
+#define UI_INK        0x0A0A0A
+#define UI_PAPER      0xF6F6F3
+#define UI_SURFACE    0xFFFFFF
+#define UI_SUBTLE     0x737373
+#define UI_LINE       0xC7C7C3
 #define UI_GRASS      0x82BE2D
 #define UI_GRASS_DARK 0x55951D
 #define UI_YELLOW     0xFFD928
@@ -19,5 +22,6 @@ lv_obj_t *ui_pixel_panel_create(lv_obj_t *parent, int x, int y, int w, int h,
 lv_obj_t *ui_pixel_label(lv_obj_t *parent, const char *text,
                          const lv_font_t *font, uint32_t color);
 lv_obj_t *ui_pixel_mascot_create(lv_obj_t *parent, int x, int y);
+lv_obj_t *ui_pixel_nav_create(lv_obj_t *parent, int active_index);
 void ui_pixel_mascot_jump(lv_obj_t *mascot);
 void ui_pixel_set_selected(lv_obj_t *panel, bool selected, bool enabled);

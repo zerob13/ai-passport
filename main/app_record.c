@@ -13,7 +13,6 @@
 #include "bsp_audio.h"
 #include "bsp_display.h"
 #include "sync_ble.h"
-#include "ui_font_cjk_16.h"
 #include "ui_pixel.h"
 #include "lvgl.h"
 #include "esp_log.h"
@@ -44,6 +43,8 @@ static lv_obj_t *s_time_lbl;        // 已录时长
 static lv_obj_t *s_state_lbl;       // 状态行
 static lv_obj_t *s_file_lbl;        // 文件名行
 static lv_obj_t *s_foot_lbl;        // 底部连接状态
+static lv_obj_t *s_mode_lbl;
+static lv_obj_t *s_action_lbl;
 static lv_timer_t *s_timer;         // 1s 刷新时长/指示灯
 
 static TaskHandle_t s_task;
@@ -69,7 +70,7 @@ static void set_state(const char *text)
 static void record_session(void)
 {
     if (bsp_audio_set_format(REC_HZ, 16, 1) != ESP_OK) {
-        set_state("麦克风不可用");
+        set_state("MIC UNAVAILABLE");
         s_recording = false;
         return;
     }
@@ -79,7 +80,7 @@ static void record_session(void)
     uint8_t *frame = malloc(SYNC_FRAME_MAX);
     if (!pcm || !enc || !frame) {
         free(pcm); free(enc); free(frame);
-        set_state("内存不足");
+        set_state("MEMORY FULL");
         s_recording = false;
         return;
     }
@@ -102,13 +103,13 @@ static void record_session(void)
     size_t n = sync_proto_build_audio_start(frame, SYNC_FRAME_MAX,
                                             now, REC_HZ, SYNC_CODEC_IMA_ADPCM, 1);
     if (sync_ble_send(frame, n) != ESP_OK) {
-        set_state("上传失败:未连接");
+        set_state("UPLOAD FAILED");
         sync_ble_set_recording(false);
         s_recording = false;
         free(pcm); free(enc); free(frame);
         return;
     }
-    set_state("录音中...");
+    set_state("RECORDING");
 
     while (s_session_cmd == REC_CMD_NONE) {
         if (bsp_audio_read(pcm, CHUNK_SAMPLES * sizeof(int16_t)) != ESP_OK) {
@@ -137,11 +138,11 @@ static void record_session(void)
     s_recording = false;
 
     if (abnormal) {
-        set_state("已停止:连接中断");
+        set_state("LINK LOST");
     } else {
         ESP_LOGI(TAG, "录音结束 %u 秒,丢 %u B",
                  (unsigned)(samples / REC_HZ), (unsigned)dropped);
-        set_state("已保存");
+        set_state("SAVED");
     }
     free(pcm); free(enc); free(frame);
 }
@@ -156,7 +157,7 @@ static void record_task(void *arg)
         if (cmd == REC_CMD_QUIT) break;
         if (cmd == REC_CMD_START) {
             if (!s_audio_ok) {
-                set_state("麦克风不可用");
+                set_state("MIC UNAVAILABLE");
                 continue;
             }
             record_session();
@@ -169,6 +170,33 @@ static void record_task(void *arg)
 // ============================================================================
 // UI
 // ============================================================================
+
+static lv_obj_t *shape(lv_obj_t *parent, int x, int y, int w, int h,
+                       uint32_t color, int border, int radius)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(obj, x, y);
+    lv_obj_set_size(obj, w, h);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_border_color(obj, lv_color_hex(UI_INK), 0);
+    lv_obj_set_style_border_width(obj, border, 0);
+    lv_obj_set_style_radius(obj, radius, 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    return obj;
+}
+
+static void reel_create(lv_obj_t *parent, int x, int y)
+{
+    lv_obj_t *outer = shape(parent, x, y, 50, 50, UI_SURFACE, 2,
+                            LV_RADIUS_CIRCLE);
+    lv_obj_t *inner = shape(outer, 9, 9, 28, 28, UI_LINE, 0,
+                            LV_RADIUS_CIRCLE);
+    shape(inner, 12, 2, 4, 24, UI_INK, 0, 0);
+    shape(inner, 2, 12, 24, 4, UI_INK, 0, 0);
+    shape(inner, 9, 9, 10, 10, UI_SURFACE, 0, LV_RADIUS_CIRCLE);
+    shape(inner, 12, 12, 4, 4, UI_INK, 0, LV_RADIUS_CIRCLE);
+}
 
 static void tick(lv_timer_t *timer)
 {
@@ -183,6 +211,8 @@ static void tick(lv_timer_t *timer)
     } else {
         lv_obj_set_style_opa(s_dot, LV_OPA_TRANSP, 0);
     }
+    lv_label_set_text(s_mode_lbl, s_recording ? "LIVE" : "READY");
+    lv_label_set_text(s_action_lbl, s_recording ? "OK  STOP" : "OK  START");
 }
 
 static void file_label(void)
@@ -194,7 +224,7 @@ static void file_label(void)
         lv_label_set_text_fmt(s_file_lbl, "REC-%04d%02d%02d-%02d%02d",
                               y, mo, d, h, mi);
     } else if (s_file_lbl) {
-        lv_label_set_text(s_file_lbl, "REC-???? (等手机对时)");
+        lv_label_set_text(s_file_lbl, "REC-????");
     }
 }
 
@@ -203,39 +233,71 @@ void app_record_enter(void)
     s_scr = ui_pixel_screen_create("RECORDING");
     s_bat = app_battery_create(s_scr);
 
-    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 18, 58, 204, 172, UI_PAPER);
+    s_mode_lbl = ui_pixel_label(s_scr, "READY", &lv_font_montserrat_14, UI_SUBTLE);
+    lv_obj_set_width(s_mode_lbl, 60);
+    lv_obj_set_pos(s_mode_lbl, 170, 30);
+    lv_obj_set_style_text_align(s_mode_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 
-    // 麦克风圆点
+    lv_obj_t *file_panel = ui_pixel_panel_create(s_scr, 10, 62, 220, 42, UI_SURFACE);
+    lv_obj_set_style_pad_all(file_panel, 0, 0);
+    s_file_lbl = ui_pixel_label(file_panel, "", &lv_font_montserrat_14, UI_INK);
+    lv_obj_set_pos(s_file_lbl, 10, 2);
+    lv_obj_t *codec = ui_pixel_label(file_panel,
+                                     "IMA ADPCM · 16 kHz · MONO",
+                                     &lv_font_montserrat_14, UI_SUBTLE);
+    lv_obj_set_pos(codec, 10, 20);
+    lv_obj_t *chevron = ui_pixel_label(file_panel, ">", &lv_font_montserrat_20,
+                                       UI_INK);
+    lv_obj_set_pos(chevron, 201, 8);
+
+    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 109, 220, 124, UI_SURFACE);
+    lv_obj_set_style_pad_all(panel, 0, 0);
+
     s_dot = lv_obj_create(panel);
-    lv_obj_set_size(s_dot, 22, 22);
+    lv_obj_set_size(s_dot, 8, 8);
     lv_obj_set_style_radius(s_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_dot, lv_color_hex(UI_RED), 0);
+    lv_obj_set_style_bg_color(s_dot, lv_color_hex(UI_INK), 0);
     lv_obj_set_style_border_width(s_dot, 0, 0);
-    lv_obj_set_pos(s_dot, 20, 20);
+    lv_obj_set_pos(s_dot, 64, 9);
     lv_obj_set_style_opa(s_dot, LV_OPA_TRANSP, 0);
 
     s_time_lbl = ui_pixel_label(panel, "00:00", &lv_font_montserrat_20, UI_INK);
-    lv_obj_set_pos(s_time_lbl, 56, 14);
+    lv_obj_set_width(s_time_lbl, 220);
+    lv_obj_set_pos(s_time_lbl, 0, 25);
+    lv_obj_set_style_text_align(s_time_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    s_file_lbl = ui_pixel_label(panel, "", &ui_font_cjk_16, 0x5A6A73);
-    lv_obj_set_pos(s_file_lbl, 20, 58);
+    s_state_lbl = ui_pixel_label(panel, "", &lv_font_montserrat_14, UI_INK);
+    lv_obj_set_width(s_state_lbl, 160);
+    lv_obj_set_pos(s_state_lbl, 30, 2);
+    lv_obj_set_style_text_align(s_state_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    s_state_lbl = ui_pixel_label(panel, "", &ui_font_cjk_16, UI_INK);
-    lv_obj_set_pos(s_state_lbl, 20, 92);
+    reel_create(panel, 18, 57);
+    reel_create(panel, 152, 57);
+    lv_obj_t *transfer = ui_pixel_label(panel, ">>>", &lv_font_montserrat_20,
+                                        UI_INK);
+    lv_obj_set_width(transfer, 70);
+    lv_obj_set_pos(transfer, 75, 69);
+    lv_obj_set_style_text_align(transfer, LV_TEXT_ALIGN_CENTER, 0);
+    shape(panel, 42, 111, 136, 2, UI_INK, 0, 0);
+    shape(panel, 37, 107, 10, 10, UI_INK, 0, LV_RADIUS_CIRCLE);
+    shape(panel, 173, 107, 10, 10, UI_INK, 0, LV_RADIUS_CIRCLE);
 
-    lv_obj_t *rule = lv_obj_create(panel);
-    lv_obj_set_size(rule, 176, 2);
-    lv_obj_set_pos(rule, 14, 128);
-    lv_obj_set_style_border_width(rule, 0, 0);
-    lv_obj_set_style_bg_color(rule, lv_color_hex(0xC9D6DC), 0);
-    lv_obj_set_style_pad_all(rule, 0, 0);
+    lv_obj_t *action = ui_pixel_panel_create(s_scr, 10, 238, 220, 44, UI_INK);
+    lv_obj_set_style_pad_all(action, 0, 0);
+    shape(action, 146, 0, 73, 43, UI_SURFACE, 0, 0);
+    shape(action, 145, 0, 1, 43, UI_INK, 0, 0);
+    s_action_lbl = ui_pixel_label(action, "OK  START", &lv_font_montserrat_14,
+                                  UI_SURFACE);
+    lv_obj_set_pos(s_action_lbl, 10, 1);
+    s_foot_lbl = ui_pixel_label(action, "", &lv_font_montserrat_14, UI_LINE);
+    lv_obj_set_pos(s_foot_lbl, 10, 21);
+    lv_obj_t *back = ui_pixel_label(action, "2X BACK", &lv_font_montserrat_14,
+                                    UI_INK);
+    lv_obj_set_width(back, 73);
+    lv_obj_set_pos(back, 146, 11);
+    lv_obj_set_style_text_align(back, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_obj_t *hint = ui_pixel_label(panel, "确定键 开始/停止 · 双击返回",
-                                    &ui_font_cjk_16, 0x5A6A73);
-    lv_obj_set_pos(hint, 20, 140);
-
-    s_foot_lbl = ui_pixel_label(s_scr, "", &ui_font_cjk_16, 0x1779B2);
-    lv_obj_align(s_foot_lbl, LV_ALIGN_BOTTOM_MID, 0, -26);
+    ui_pixel_nav_create(s_scr, 0);
 
     lv_screen_load(s_scr);
 
@@ -254,19 +316,20 @@ void app_record_enter(void)
     s_audio_ok = (bsp_audio_set_format(REC_HZ, 16, 1) == ESP_OK);
     file_label();
     lv_label_set_text(s_state_lbl,
-                      !s_audio_ok ? "麦克风不可用" :
-                      (sync_ble_is_connected() ? "就绪 · 手机已连接" : "就绪 · 等待手机连接"));
+                      !s_audio_ok ? "MIC UNAVAILABLE" :
+                      (sync_ble_is_connected() ? "READY" : "WAITING FOR PHONE"));
+    app_record_refresh();
 }
 
 void app_record_refresh(void)
 {
     if (!s_scr) return;
     lv_label_set_text(s_foot_lbl,
-                      sync_ble_is_connected() ? "已连接手机" : "等待手机连接");
+                      sync_ble_is_connected() ? "PHONE CONNECTED" : "WAITING FOR PHONE");
     if (!s_recording) {
         lv_label_set_text(s_state_lbl,
-                          !s_audio_ok ? "麦克风不可用" :
-                          (sync_ble_is_connected() ? "就绪 · 手机已连接" : "就绪 · 等待手机连接"));
+                          !s_audio_ok ? "MIC UNAVAILABLE" :
+                          (sync_ble_is_connected() ? "READY" : "WAITING FOR PHONE"));
     }
     file_label();
 }
@@ -276,19 +339,19 @@ void app_record_key(bsp_btn_t btn, bsp_btn_ev_t ev)
     if (ev != BSP_BTN_CLICK || btn != BSP_BTN_OK) return;
     if (!s_recording) {
         if (!sync_ble_is_connected()) {
-            lv_label_set_text(s_state_lbl, "未连接手机,无法上传");
+            lv_label_set_text(s_state_lbl, "PHONE NOT CONNECTED");
             return;
         }
         if (!s_audio_ok) {
-            lv_label_set_text(s_state_lbl, "麦克风不可用");
+            lv_label_set_text(s_state_lbl, "MIC UNAVAILABLE");
             return;
         }
         s_cmd = REC_CMD_START;
         xSemaphoreGive(s_sem);
-        lv_label_set_text(s_state_lbl, "启动中...");
+        lv_label_set_text(s_state_lbl, "STARTING");
     } else {
         s_session_cmd = REC_CMD_STOP;          // 会话循环 ≤30ms 内响应
-        lv_label_set_text(s_state_lbl, "正在结束并上传...");
+        lv_label_set_text(s_state_lbl, "FINALIZING");
     }
 }
 
@@ -302,6 +365,7 @@ void app_record_exit(void)
         lv_obj_delete(s_scr);
         s_scr = NULL;
         s_dot = s_time_lbl = s_state_lbl = s_file_lbl = s_foot_lbl = NULL;
+        s_mode_lbl = s_action_lbl = NULL;
     }
     if (s_task) {
         if (s_recording) s_session_cmd = REC_CMD_STOP;   // 定稿再退出
