@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Fixed recording sessions that immediately reported `LINK LOST` because the
+  240-byte ADPCM chunk exceeded the protocol's 238-byte audio-data limit.
 - Fixed BLE discovery and connection: corrected firmware UUID byte order,
   split the oversized legacy advertising payload across advertising and scan
   response packets, and made Android match by name or service UUID, request

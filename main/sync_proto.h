@@ -15,6 +15,7 @@ extern "C" {
 #define SYNC_MAX_SCHED      32       // 当天日程上限
 #define SYNC_MAX_TODO       32       // Todo 上限
 #define SYNC_MAX_PAYLOAD    240      // 单帧负载上限(兼容 MTU 247)
+#define SYNC_AUDIO_DATA_MAX (SYNC_MAX_PAYLOAD - 2) // AUDIO_DATA minus seq u16
 #define SYNC_FRAME_MAX      (3 + SYNC_MAX_PAYLOAD)
 
 // 帧: [0xA5][type][len][payload]  —— len = payload 长度,多字节字段小端序。
@@ -78,7 +79,7 @@ size_t sync_proto_build(uint8_t type, const void *payload, size_t plen,
 // 各 TX 消息便捷构造器。返回帧长,失败返回 0。
 size_t sync_proto_build_audio_start(uint8_t *out, size_t cap, uint32_t unix_time,
                                     uint16_t rate, uint8_t codec, uint8_t ch);
-// data 长度 ≤ SYNC_MAX_PAYLOAD - 2(seq 占 2 字节)
+// data length must not exceed SYNC_AUDIO_DATA_MAX.
 size_t sync_proto_build_audio_data(uint8_t *out, size_t cap, uint16_t seq,
                                    const uint8_t *data, size_t n);
 size_t sync_proto_build_audio_end(uint8_t *out, size_t cap, uint32_t dur_ms,

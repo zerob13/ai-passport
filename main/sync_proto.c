@@ -149,7 +149,7 @@ size_t sync_proto_build_audio_start(uint8_t *out, size_t cap, uint32_t unix_time
 size_t sync_proto_build_audio_data(uint8_t *out, size_t cap, uint16_t seq,
                                    const uint8_t *data, size_t n)
 {
-    if (n > SYNC_MAX_PAYLOAD - 2) return 0;
+    if (n > SYNC_AUDIO_DATA_MAX) return 0;
     // 帧头 + seq(2B) + data
     if (cap < 3 + 2 + n) return 0;
     out[0] = 0xA5;

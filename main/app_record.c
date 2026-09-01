@@ -25,8 +25,8 @@
 static const char *TAG = "app_record";
 
 #define REC_HZ        16000
-#define CHUNK_SAMPLES 480           // 30ms/块 → 240B ADPCM,一条通知一帧
-#define ENC_BYTES     (CHUNK_SAMPLES / 2)
+#define ENC_BYTES     SYNC_AUDIO_DATA_MAX
+#define CHUNK_SAMPLES (ENC_BYTES * 2) // 29.75 ms -> one protocol-safe frame
 
 // 录音任务命令 / 会话命令
 enum {

@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 修复录音开始后立即提示 `LINK LOST`：原先 240 字节 ADPCM 数据块超过了协议的
+  238 字节音频数据上限。
 - 修复 BLE 发现与连接：纠正固件 UUID 字节序，将超出 legacy 广播上限的数据拆分到
   advertising 与 scan response，并让 Android 按设备名或服务 UUID 匹配、正确申请
   运行时权限、为扫描设置超时，以及串行执行 GATT 初始化。

@@ -16,14 +16,16 @@ int main(void)
     assert(frame[3] == 0x00 && frame[7] == 0x80 && frame[8] == 0x3E);  // 小端 16000
     assert(frame[9] == SYNC_CODEC_IMA_ADPCM && frame[10] == 1);
 
-    // AUDIO_DATA:负载上限 238;超限返回 0
-    uint8_t ad[238];
+    // AUDIO_DATA accepts the shared limit and rejects one byte over it.
+    uint8_t ad[SYNC_AUDIO_DATA_MAX + 1];
     memset(ad, 0x5A, sizeof(ad));
-    n = sync_proto_build_audio_data(frame, sizeof(frame), 0x0102, ad, sizeof(ad));
-    assert(n == 3 + 2 + 238);
+    n = sync_proto_build_audio_data(frame, sizeof(frame), 0x0102,
+                                    ad, SYNC_AUDIO_DATA_MAX);
+    assert(n == 3 + 2 + SYNC_AUDIO_DATA_MAX);
     assert(frame[1] == SYNC_TX_AUDIO_DATA && frame[2] == 240);
     assert(frame[3] == 0x02 && frame[4] == 0x01 && frame[5] == 0x5A);
-    assert(sync_proto_build_audio_data(frame, sizeof(frame), 0, ad, 239) == 0);
+    assert(sync_proto_build_audio_data(frame, sizeof(frame), 0,
+                                       ad, SYNC_AUDIO_DATA_MAX + 1) == 0);
 
     n = sync_proto_build_audio_end(frame, sizeof(frame), 65432, 1000000, 3);
     assert(n == 3 + 12);
