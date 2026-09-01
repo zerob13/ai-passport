@@ -23,6 +23,8 @@ static lv_obj_t *s_scr;
 static lv_obj_t *s_bat;
 static lv_obj_t *s_head_lbl;
 static lv_obj_t *s_foot_lbl;
+static lv_obj_t *s_empty_title;
+static lv_obj_t *s_empty_hint;
 static todo_row_t s_rows[TODO_MAX_ROWS];
 static int s_sel;
 static int s_win;
@@ -86,7 +88,7 @@ static void rows_rebuild(void)
                                   lv_color_hex(item->done ? row_color : mark_color), 0);
 
         lv_label_set_text(row->title, item->title_len ? item->title : "(无标题)");
-        lv_label_set_text_fmt(row->meta, "%s  ·  TASK %02d",
+        lv_label_set_text_fmt(row->meta, "%s  |  TASK %02d",
                               item->done ? "DONE" : "OPEN", s_win + i + 1);
         lv_obj_remove_flag(row->box, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(row->priority, LV_OBJ_FLAG_HIDDEN);
@@ -94,15 +96,11 @@ static void rows_rebuild(void)
     }
 
     if (st->todo_count == 0) {
-        todo_row_t *row = &s_rows[0];
-        lv_obj_set_style_bg_color(row->row, lv_color_hex(UI_SURFACE), 0);
-        lv_obj_set_style_text_color(row->title, lv_color_hex(UI_INK), 0);
-        lv_obj_set_style_text_color(row->meta, lv_color_hex(UI_SUBTLE), 0);
-        lv_label_set_text(row->title, "暂无任务");
-        lv_label_set_text(row->meta, "SYNC FROM PHONE");
-        lv_obj_add_flag(row->box, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(row->priority, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(row->row, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_empty_title, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_empty_hint, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_empty_title, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_empty_hint, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -131,7 +129,7 @@ void app_todo_enter(void)
         row->box = box(row->row, 8, 10, 15, 15, UI_SURFACE, 1,
                        LV_RADIUS_CIRCLE);
         row->title = ui_pixel_label(row->row, "", &ui_font_cjk_16, UI_INK);
-        lv_obj_set_pos(row->title, 31, -1);
+        lv_obj_set_pos(row->title, 31, 2);
         lv_obj_set_size(row->title, 164, 22);
         lv_label_set_long_mode(row->title, LV_LABEL_LONG_WRAP);
         row->meta = ui_pixel_label(row->row, "", &lv_font_montserrat_14,
@@ -140,6 +138,17 @@ void app_todo_enter(void)
         row->priority = box(row->row, 201, 13, 8, 8, UI_INK, 1,
                             LV_RADIUS_CIRCLE);
     }
+
+    s_empty_title = ui_pixel_label(panel, "NO TASKS", &lv_font_montserrat_20,
+                                   UI_INK);
+    lv_obj_set_width(s_empty_title, 218);
+    lv_obj_set_pos(s_empty_title, 0, 64);
+    lv_obj_set_style_text_align(s_empty_title, LV_TEXT_ALIGN_CENTER, 0);
+    s_empty_hint = ui_pixel_label(panel, "SYNC FROM PHONE", &lv_font_montserrat_14,
+                                  UI_SUBTLE);
+    lv_obj_set_width(s_empty_hint, 218);
+    lv_obj_set_pos(s_empty_hint, 0, 92);
+    lv_obj_set_style_text_align(s_empty_hint, LV_TEXT_ALIGN_CENTER, 0);
 
     s_foot_lbl = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_INK);
     lv_obj_set_width(s_foot_lbl, 220);
@@ -167,8 +176,8 @@ void app_todo_refresh(void)
     }
     rows_rebuild();
     lv_label_set_text(s_foot_lbl,
-                      sync_ble_is_connected() ? "UP/DN  ·  OK DONE  ·  2X BACK"
-                                              : "WAITING FOR PHONE");
+                      sync_ble_is_connected() ? "UP/DN  |  OK DONE  |  2X BACK"
+                                              : "PHONE OFFLINE");
 }
 
 void app_todo_key(bsp_btn_t btn, bsp_btn_ev_t ev)
@@ -209,5 +218,6 @@ void app_todo_exit(void)
         lv_obj_delete(s_scr);
         s_scr = NULL;
         s_head_lbl = s_foot_lbl = NULL;
+        s_empty_title = s_empty_hint = NULL;
     }
 }

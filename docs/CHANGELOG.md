@@ -10,6 +10,8 @@
   the DayRing visual language: paper-white surfaces, monochrome typography,
   fine borders, compact status metadata, cassette reels, date badges, task
   rows, and a persistent three-section footer adapted to the 240×320 display.
+- Fixed compact-screen labels that wrapped, clipped, or rendered unsupported
+  separator glyphs, and centered the empty states for days and todo.
 - Fixed firmware builds and prevented 60-byte schedule/todo titles from
   writing their terminator past the allocated buffer.
 - Added the AI Passport sync app (replaces the demo menu on boot): a paging

@@ -243,7 +243,7 @@ void app_record_enter(void)
     s_file_lbl = ui_pixel_label(file_panel, "", &lv_font_montserrat_14, UI_INK);
     lv_obj_set_pos(s_file_lbl, 10, 2);
     lv_obj_t *codec = ui_pixel_label(file_panel,
-                                     "IMA ADPCM · 16 kHz · MONO",
+                                     "ADPCM / 16K / MONO",
                                      &lv_font_montserrat_14, UI_SUBTLE);
     lv_obj_set_pos(codec, 10, 20);
     lv_obj_t *chevron = ui_pixel_label(file_panel, ">", &lv_font_montserrat_20,
@@ -290,6 +290,7 @@ void app_record_enter(void)
                                   UI_SURFACE);
     lv_obj_set_pos(s_action_lbl, 10, 1);
     s_foot_lbl = ui_pixel_label(action, "", &lv_font_montserrat_14, UI_LINE);
+    lv_obj_set_width(s_foot_lbl, 130);
     lv_obj_set_pos(s_foot_lbl, 10, 21);
     lv_obj_t *back = ui_pixel_label(action, "2X BACK", &lv_font_montserrat_14,
                                     UI_INK);
@@ -317,7 +318,7 @@ void app_record_enter(void)
     file_label();
     lv_label_set_text(s_state_lbl,
                       !s_audio_ok ? "MIC UNAVAILABLE" :
-                      (sync_ble_is_connected() ? "READY" : "WAITING FOR PHONE"));
+                      (sync_ble_is_connected() ? "READY" : "NO PHONE"));
     app_record_refresh();
 }
 
@@ -325,11 +326,11 @@ void app_record_refresh(void)
 {
     if (!s_scr) return;
     lv_label_set_text(s_foot_lbl,
-                      sync_ble_is_connected() ? "PHONE CONNECTED" : "WAITING FOR PHONE");
+                      sync_ble_is_connected() ? "PHONE READY" : "NO PHONE");
     if (!s_recording) {
         lv_label_set_text(s_state_lbl,
                           !s_audio_ok ? "MIC UNAVAILABLE" :
-                          (sync_ble_is_connected() ? "READY" : "WAITING FOR PHONE"));
+                          (sync_ble_is_connected() ? "READY" : "NO PHONE"));
     }
     file_label();
 }
@@ -339,7 +340,7 @@ void app_record_key(bsp_btn_t btn, bsp_btn_ev_t ev)
     if (ev != BSP_BTN_CLICK || btn != BSP_BTN_OK) return;
     if (!s_recording) {
         if (!sync_ble_is_connected()) {
-            lv_label_set_text(s_state_lbl, "PHONE NOT CONNECTED");
+            lv_label_set_text(s_state_lbl, "NO PHONE");
             return;
         }
         if (!s_audio_ok) {

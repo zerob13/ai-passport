@@ -167,7 +167,7 @@ static void card_refresh(void)
     lv_label_set_text_fmt(s_mode_label, "MODE %d / %d",
                           (int)s_pager.page + 1, PAGER_PAGE_COUNT);
     lv_label_set_text(s_link_label,
-                      sync_ble_is_connected() ? "PHONE CONNECTED" : "WAITING FOR PHONE");
+                      sync_ble_is_connected() ? "PHONE ONLINE" : "PHONE OFFLINE");
     if (s_nav) lv_obj_delete(s_nav);
     s_nav = ui_pixel_nav_create(s_scr, (int)s_pager.page);
 }
@@ -202,7 +202,7 @@ static void paging_build(void)
     lv_obj_set_width(s_link_label, 220);
     lv_obj_set_pos(s_link_label, 10, 244);
     lv_obj_set_style_text_align(s_link_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_t *hint = ui_pixel_label(s_scr, "UP / DOWN MODE  ·  OK OPEN",
+    lv_obj_t *hint = ui_pixel_label(s_scr, "UP/DN MODE  |  OK OPEN",
                                     &lv_font_montserrat_14, UI_INK);
     lv_obj_set_width(hint, 220);
     lv_obj_set_pos(hint, 10, 264);
@@ -219,7 +219,7 @@ static void on_sync_evt(sync_ble_evt_t ev)
     if (s_pager.mode == PAGER_MODE_PAGING) {
         if (s_link_label) {
             lv_label_set_text(s_link_label,
-                              sync_ble_is_connected() ? "PHONE CONNECTED" : "WAITING FOR PHONE");
+                              sync_ble_is_connected() ? "PHONE ONLINE" : "PHONE OFFLINE");
         }
     } else if (APP_PAGES[s_pager.page].refresh) {
         APP_PAGES[s_pager.page].refresh();
