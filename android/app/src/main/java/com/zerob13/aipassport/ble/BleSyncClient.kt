@@ -19,13 +19,11 @@ import android.bluetooth.le.BluetoothLeScanner
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.zerob13.aipassport.audio.WavRecording
 import com.zerob13.aipassport.proto.FrameCodec
 import com.zerob13.aipassport.proto.RxMessages
 import com.zerob13.aipassport.proto.SyncProtocol
 import com.zerob13.aipassport.proto.TxMessages
-import java.io.File
-import java.io.FileOutputStream
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 会话监听回调(所有回调都投递到主线程)。
@@ -35,29 +33,8 @@ interface SyncListener {
     fun onStatus(status: com.zerob13.aipassport.proto.DeviceStatus)
     fun onTodoToggle(id: Int, done: Boolean)
     fun onRecordingStarted()
-    fun onRecordingFinished(file: File?, durationMs: Long, droppedBytes: Long)
+    fun onRecordingFinished(fileName: String?, durationMs: Long, droppedBytes: Long)
     fun onError(message: String)
-}
-
-/**
- * 一次"正在接收"的录音会话:把 ADPCM 数据追加到文件,收到 AUDIO_END 后定稿。
- */
-class RecordingSession(file: File) {
-    val output = FileOutputStream(file)
-    var durationMs = 0L
-    var droppedBytes = 0L
-    private var closed = AtomicBoolean(false)
-
-    fun write(data: ByteArray) {
-        if (!closed.get()) output.write(data)
-    }
-
-    fun close() {
-        if (closed.compareAndSet(false, true)) {
-            output.flush()
-            output.close()
-        }
-    }
 }
 
 /**
@@ -85,8 +62,7 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
         listener.onError("未发现 FoloPassport，请确认设备已开机并靠近手机")
     }
 
-    private var recording: RecordingSession? = null
-    private var recordingFileName: String? = null
+    private var recording: WavRecording? = null
 
     val isConnected: Boolean get() = ready
 
@@ -161,6 +137,7 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     }
 
     private fun closeGatt() {
+        cancelRecording()
         pendingWriteQueue.clear()
         writeInFlight = false
         ready = false
@@ -185,6 +162,7 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    cancelRecording()
                     ready = false
                     gatt = null
                     txChar = null
@@ -316,22 +294,22 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
         when (frame.type) {
             SyncProtocol.TX_AUDIO_START -> {
                 val meta = TxMessages.parseAudioStart(frame.payload)
-                if (meta != null) {
-                    startRecording(meta)
+                if (meta != null && startRecording(meta)) {
                     listener.onRecordingStarted()
                 }
             }
             SyncProtocol.TX_AUDIO_DATA -> {
                 val d = TxMessages.parseAudioData(frame.payload)
                 if (d != null && recording != null) {
-                    recording?.write(d.second)
+                    if (recording?.writeAdpcm(d.second) != true) {
+                        recording = null
+                        listener.onError("录音写入失败")
+                    }
                 }
             }
             SyncProtocol.TX_AUDIO_END -> {
                 val meta = TxMessages.parseAudioEnd(frame.payload)
-                recording?.durationMs = meta?.durationMs ?: 0
-                recording?.droppedBytes = meta?.droppedBytes ?: 0
-                finishRecording()
+                finishRecording(meta)
             }
             SyncProtocol.TX_TODO_TOGGLE -> {
                 val t = TxMessages.parseTodoToggle(frame.payload)
@@ -344,25 +322,43 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
         }
     }
 
-    private fun startRecording(meta: com.zerob13.aipassport.proto.RecordingMeta) {
-        finishRecording() // 防御:上一条未收尾则先定稿
-        val dir = File(context.filesDir, "recordings").apply { mkdirs() }
+    private fun startRecording(
+        meta: com.zerob13.aipassport.proto.RecordingMeta,
+    ): Boolean {
+        cancelRecording()
+        if (meta.codec != SyncProtocol.CODEC_IMA_ADPCM || meta.channels != 1) {
+            listener.onError("不支持的录音格式")
+            return false
+        }
         val stamp = java.text.SimpleDateFormat(
             "yyyyMMdd-HHmmss", java.util.Locale.US
         ).format(java.util.Date(meta.unixTime * 1000))
-        val file = File(dir, "REC-$stamp.adpcm")
-        recording = RecordingSession(file)
-        recordingFileName = file.name
+        recording = WavRecording.create(context, "REC-$stamp.wav", meta.sampleRate)
+        if (recording == null) {
+            listener.onError("无法创建录音文件")
+            return false
+        }
+        return true
     }
 
-    private fun finishRecording() {
+    private fun finishRecording(meta: com.zerob13.aipassport.proto.RecordingMeta?) {
         val s = recording ?: return
-        val file = File(context.filesDir, "recordings").let { dir ->
-            File(dir, recordingFileName ?: "recording.adpcm")
-        }
-        s.close()
         recording = null
-        listener.onRecordingFinished(file, s.durationMs, s.droppedBytes)
+        if (!s.finish()) {
+            listener.onError("录音保存失败")
+            return
+        }
+        listener.onRecordingFinished(
+            s.fileName,
+            meta?.durationMs ?: 0,
+            meta?.droppedBytes ?: 0,
+        )
+    }
+
+    private fun cancelRecording() {
+        val s = recording ?: return
+        recording = null
+        s.cancel()
     }
 
     companion object {

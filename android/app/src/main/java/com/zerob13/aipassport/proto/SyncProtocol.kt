@@ -26,6 +26,7 @@ object SyncProtocol {
     const val MAX_TITLE = 60
     const val MAX_PAYLOAD = 240
     const val AUDIO_DATA_MAX = MAX_PAYLOAD - 2 // seq(2B) 之外的负载上限
+    const val CODEC_IMA_ADPCM = 1
 
     // 帧头
     const val FRAME_HEADER = 0xA5.toByte()

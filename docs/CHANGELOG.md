@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Saved recordings as playable PCM WAV files in the public
+  `Music/AI Passport` directory, added in-app playback and deletion, replaced
+  the firmware recording dot with rotating cassette reels.
 - Fixed compressed Chinese/Latin title rendering on the Passport, preserved
   UTF-8 boundaries when truncating titles, and added native schedule time
   pickers plus schedule/todo deletion to the Android app.

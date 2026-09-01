@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 将录音保存为可直接播放的 PCM WAV 文件并放入公共 `音乐/AI Passport` 目录，
+  新增 App 内播放与删除，并将固件录音圆点改为旋转磁带轮。
 - 修复 Passport 压缩字库中的中英文标题渲染，确保标题截断不破坏 UTF-8
   字符边界，并为 Android App 新增原生日程时间选择器和日程/Todo 删除功能。
 - 修复录音开始后立即提示 `LINK LOST`：原先 240 字节 ADPCM 数据块超过了协议的

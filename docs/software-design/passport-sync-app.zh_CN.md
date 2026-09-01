@@ -126,10 +126,10 @@ bytes 3..   负载(L 字节)
   `SCHEDULE_CLEAR` + `SCHEDULE_ADD`×N → `TODO_CLEAR` + `TODO_ADD`×N。
   设备建链后回复 `STATUS`。
 - **录音**:确定 开始 → `AUDIO_START` → 实时 `AUDIO_DATA` 流(约每 60 ms 一条)
-  → 确定 停止或退出页面 → `AUDIO_END`。手机把每条 `AUDIO_DATA` 负载追加到
-  当前文件;收到 `AUDIO_END` 后定稿文件(如 `REC-YYYYMMDD-HHMMSS.adpcm`),
-  再按需解码为 WAV(16 kHz 单声道 16-bit)。中途断链则没有 `AUDIO_END`,
-  是否保留部分文件由手机决定。
+  → 确定 停止或退出页面 → `AUDIO_END`。手机实时解码每条 `AUDIO_DATA`，
+  收到 `AUDIO_END` 后在公共 `音乐/AI Passport` 目录定稿为标准 16 kHz、
+  单声道、16-bit PCM WAV 文件（如 `REC-YYYYMMDD-HHMMSS.wav`）。中途断链
+  不会收到 `AUDIO_END`，此时丢弃未完成文件。
 - **Todo 勾选**:设备发 `TODO_TOGGLE`,手机应用该状态(后写者胜)。
   手机端自己勾选时,发 `TODO_ADD` 携带新 `done` 状态即可。
 - **状态**:建链、电池或录音状态变化时发送 `STATUS`,手机可用于自己的界面。

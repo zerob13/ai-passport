@@ -139,10 +139,11 @@ persisted to flash).
   `TODO_ADD`×N. The device replies `STATUS` when the link is established.
 - **Recording**: OK starts → `AUDIO_START` → live `AUDIO_DATA` stream
   (approximately one notification every 60 ms) → OK stops or page exit →
-  `AUDIO_END`. The phone appends every `AUDIO_DATA` payload to the current
-  file; on `AUDIO_END` it finalizes the file (e.g. `REC-YYYYMMDD-HHMMSS.adpcm`)
-  and may decode it to WAV (16 kHz mono 16-bit). A dropped link mid-recording
-  has no `AUDIO_END`; keep the partial file only if desired.
+  `AUDIO_END`. The phone decodes each `AUDIO_DATA` payload and finalizes a
+  standard 16 kHz, mono, 16-bit PCM WAV file (for example,
+  `REC-YYYYMMDD-HHMMSS.wav`) in the public `Music/AI Passport` directory. A
+  dropped link mid-recording has no `AUDIO_END`, so the pending partial file is
+  discarded.
 - **Todo toggle**: device sends `TODO_TOGGLE`; the phone applies it (last
   writer wins). If the phone toggles from its own UI, it sends `TODO_ADD` with
   the new `done` state.

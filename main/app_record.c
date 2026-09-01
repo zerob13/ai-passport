@@ -38,7 +38,8 @@ enum {
 
 static lv_obj_t *s_scr;
 static lv_obj_t *s_bat;
-static lv_obj_t *s_dot;             // REC 指示灯
+static lv_obj_t *s_reel_left;       // rotating cassette hubs
+static lv_obj_t *s_reel_right;
 static lv_obj_t *s_time_lbl;        // 已录时长
 static lv_obj_t *s_state_lbl;       // 状态行
 static lv_obj_t *s_file_lbl;        // 文件名行
@@ -54,6 +55,7 @@ static volatile int s_session_cmd;  // 会话命令(录音循环每块读一次)
 static volatile bool s_recording;   // 录音中(任务回写)
 static volatile uint32_t s_samples; // 已录 PCM 采样数(UI 读)
 static bool s_audio_ok;             // codec 可用性
+static int32_t s_reel_angle;        // 0.1 degree units used by LVGL
 
 // 仅供录音任务调用(非 LVGL 上下文),内部加锁;页面回调不要用。
 static void set_state(const char *text)
@@ -186,7 +188,7 @@ static lv_obj_t *shape(lv_obj_t *parent, int x, int y, int w, int h,
     return obj;
 }
 
-static void reel_create(lv_obj_t *parent, int x, int y)
+static lv_obj_t *reel_create(lv_obj_t *parent, int x, int y)
 {
     lv_obj_t *outer = shape(parent, x, y, 50, 50, UI_SURFACE, 2,
                             LV_RADIUS_CIRCLE);
@@ -196,6 +198,9 @@ static void reel_create(lv_obj_t *parent, int x, int y)
     shape(inner, 2, 12, 24, 4, UI_INK, 0, 0);
     shape(inner, 9, 9, 10, 10, UI_SURFACE, 0, LV_RADIUS_CIRCLE);
     shape(inner, 12, 12, 4, 4, UI_INK, 0, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_transform_pivot_x(inner, 14, 0);
+    lv_obj_set_style_transform_pivot_y(inner, 14, 0);
+    return inner;
 }
 
 static void tick(lv_timer_t *timer)
@@ -205,11 +210,9 @@ static void tick(lv_timer_t *timer)
     lv_label_set_text_fmt(s_time_lbl, "%02u:%02u",
                           (unsigned)(secs / 60), (unsigned)(secs % 60));
     if (s_recording) {
-        static int phase;                       // REC 灯闪烁
-        phase = (phase + 1) % 4;
-        lv_obj_set_style_opa(s_dot, phase < 2 ? LV_OPA_COVER : LV_OPA_20, 0);
-    } else {
-        lv_obj_set_style_opa(s_dot, LV_OPA_TRANSP, 0);
+        s_reel_angle = (s_reel_angle + 300) % 3600;
+        lv_obj_set_style_transform_rotation(s_reel_left, s_reel_angle, 0);
+        lv_obj_set_style_transform_rotation(s_reel_right, s_reel_angle, 0);
     }
     lv_label_set_text(s_mode_lbl, s_recording ? "LIVE" : "READY");
     lv_label_set_text(s_action_lbl, s_recording ? "OK  STOP" : "OK  START");
@@ -253,14 +256,6 @@ void app_record_enter(void)
     lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 109, 220, 124, UI_SURFACE);
     lv_obj_set_style_pad_all(panel, 0, 0);
 
-    s_dot = lv_obj_create(panel);
-    lv_obj_set_size(s_dot, 8, 8);
-    lv_obj_set_style_radius(s_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_dot, lv_color_hex(UI_INK), 0);
-    lv_obj_set_style_border_width(s_dot, 0, 0);
-    lv_obj_set_pos(s_dot, 64, 9);
-    lv_obj_set_style_opa(s_dot, LV_OPA_TRANSP, 0);
-
     s_time_lbl = ui_pixel_label(panel, "00:00", &lv_font_montserrat_20, UI_INK);
     lv_obj_set_width(s_time_lbl, 220);
     lv_obj_set_pos(s_time_lbl, 0, 25);
@@ -271,8 +266,8 @@ void app_record_enter(void)
     lv_obj_set_pos(s_state_lbl, 30, 2);
     lv_obj_set_style_text_align(s_state_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    reel_create(panel, 18, 57);
-    reel_create(panel, 152, 57);
+    s_reel_left = reel_create(panel, 18, 57);
+    s_reel_right = reel_create(panel, 152, 57);
     lv_obj_t *transfer = ui_pixel_label(panel, ">>>", &lv_font_montserrat_20,
                                         UI_INK);
     lv_obj_set_width(transfer, 70);
@@ -307,11 +302,12 @@ void app_record_enter(void)
     s_session_cmd = REC_CMD_NONE;
     s_recording = false;
     s_samples = 0;
+    s_reel_angle = 0;
     if (!s_sem) s_sem = xSemaphoreCreateBinary();
     if (!s_task) {
         xTaskCreate(record_task, "app_record", 4096, NULL, 5, &s_task);
     }
-    if (!s_timer) s_timer = lv_timer_create(tick, 1000, NULL);
+    if (!s_timer) s_timer = lv_timer_create(tick, 120, NULL);
 
     // 探测 codec 并刷新状态
     s_audio_ok = (bsp_audio_set_format(REC_HZ, 16, 1) == ESP_OK);
@@ -365,7 +361,8 @@ void app_record_exit(void)
         s_bat = NULL;
         lv_obj_delete(s_scr);
         s_scr = NULL;
-        s_dot = s_time_lbl = s_state_lbl = s_file_lbl = s_foot_lbl = NULL;
+        s_reel_left = s_reel_right = NULL;
+        s_time_lbl = s_state_lbl = s_file_lbl = s_foot_lbl = NULL;
         s_mode_lbl = s_action_lbl = NULL;
     }
     if (s_task) {

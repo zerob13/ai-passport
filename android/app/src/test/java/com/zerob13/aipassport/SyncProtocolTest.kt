@@ -2,6 +2,8 @@
 // 协议编解码 JVM 测试(与设备端 C 实现对齐)。
 package com.zerob13.aipassport
 
+import com.zerob13.aipassport.audio.ImaAdpcmDecoder
+import com.zerob13.aipassport.audio.PcmWav
 import com.zerob13.aipassport.proto.FrameCodec
 import com.zerob13.aipassport.proto.RxMessages
 import com.zerob13.aipassport.proto.ScheduleItem
@@ -15,6 +17,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class SyncProtocolTest {
 
@@ -158,6 +162,22 @@ class SyncProtocolTest {
         val (seq, data) = TxMessages.parseAudioData(payload)!!
         assertEquals(0x0102, seq)
         assertArrayEquals(byteArrayOf(0x5A, 0x5B, 0x5C), data)
+    }
+
+    @Test
+    fun adpcmGoldenSampleProducesPlayableWavData() {
+        val pcm = ImaAdpcmDecoder().decode(byteArrayOf(0xA7.toByte()))
+        assertArrayEquals(byteArrayOf(11, 0, 1, 0), pcm)
+
+        val header = PcmWav.header(pcm.size.toLong(), 16_000)
+        val littleEndian = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals("RIFF", header.copyOfRange(0, 4).toString(Charsets.US_ASCII))
+        assertEquals(40, littleEndian.getInt(4))
+        assertEquals("WAVE", header.copyOfRange(8, 12).toString(Charsets.US_ASCII))
+        assertEquals(1, littleEndian.getShort(20).toInt())
+        assertEquals(1, littleEndian.getShort(22).toInt())
+        assertEquals(16_000, littleEndian.getInt(24))
+        assertEquals(4, littleEndian.getInt(40))
     }
 
     @Test

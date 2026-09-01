@@ -9,6 +9,8 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
@@ -31,7 +33,6 @@ import com.zerob13.aipassport.databinding.ActivityMainBinding
 import com.zerob13.aipassport.proto.DeviceStatus
 import com.zerob13.aipassport.proto.ScheduleItem
 import com.zerob13.aipassport.proto.TodoItem
-import java.io.File
 import java.util.Calendar
 
 class MainActivity : AppCompatActivity(), SyncListener {
@@ -39,6 +40,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private lateinit var binding: ActivityMainBinding
     private lateinit var repo: AppRepository
     private lateinit var ble: BleSyncClient
+    private var mediaPlayer: MediaPlayer? = null
 
     private val scheduleAdapter = ScheduleAdapter()
     private val todoAdapter = TodoAdapter()
@@ -132,6 +134,8 @@ class MainActivity : AppCompatActivity(), SyncListener {
     }
 
     override fun onDestroy() {
+        mediaPlayer?.release()
+        mediaPlayer = null
         ble.disconnect()
         super.onDestroy()
     }
@@ -280,6 +284,60 @@ class MainActivity : AppCompatActivity(), SyncListener {
             .show()
     }
 
+    private fun playRecording(item: RecordingRecord) {
+        mediaPlayer?.release()
+        val player = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .build()
+            )
+            setOnPreparedListener {
+                it.start()
+                toast("正在播放 ${item.fileName}")
+            }
+            setOnCompletionListener {
+                it.release()
+                if (mediaPlayer === it) mediaPlayer = null
+            }
+            setOnErrorListener { failedPlayer, _, _ ->
+                failedPlayer.release()
+                if (mediaPlayer === failedPlayer) mediaPlayer = null
+                toast("无法播放录音")
+                true
+            }
+        }
+        mediaPlayer = player
+        try {
+            val uri = item.contentUri
+            if (uri != null) {
+                player.setDataSource(this, uri)
+            } else {
+                player.setDataSource(item.filePath ?: error("Missing recording path"))
+            }
+            player.prepareAsync()
+        } catch (_: Exception) {
+            player.release()
+            mediaPlayer = null
+            toast("无法播放录音")
+        }
+    }
+
+    private fun confirmDeleteRecording(item: RecordingRecord) {
+        AlertDialog.Builder(this)
+            .setTitle("删除录音")
+            .setMessage("确定删除「${item.fileName}」？")
+            .setPositiveButton("删除") { _, _ ->
+                mediaPlayer?.release()
+                mediaPlayer = null
+                if (!repo.deleteRecording(item)) toast("录音删除失败")
+                refreshLists()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun toast(msg: String) =
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
@@ -309,9 +367,9 @@ class MainActivity : AppCompatActivity(), SyncListener {
         binding.statusText.text = "正在接收录音..."
     }
 
-    override fun onRecordingFinished(file: File?, durationMs: Long, droppedBytes: Long) {
+    override fun onRecordingFinished(fileName: String?, durationMs: Long, droppedBytes: Long) {
         refreshLists()
-        toast("录音已保存: ${file?.name} (${durationMs / 1000}s)")
+        toast("已保存到 音乐/AI Passport: $fileName (${durationMs / 1000}s)")
     }
 
     override fun onError(message: String) {
@@ -384,6 +442,8 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private class RecordingVH(v: View) : RecyclerView.ViewHolder(v) {
         val name = v.findViewById<android.widget.TextView>(R.id.item_name)
         val size = v.findViewById<android.widget.TextView>(R.id.item_size)
+        val play = v.findViewById<Button>(R.id.item_play)
+        val delete = v.findViewById<Button>(R.id.item_delete)
     }
 
     private inner class RecordingAdapter : RecyclerView.Adapter<RecordingVH>() {
@@ -395,9 +455,18 @@ class MainActivity : AppCompatActivity(), SyncListener {
         override fun onCreateViewHolder(p: ViewGroup, vt: Int) =
             RecordingVH(layoutInflater.inflate(R.layout.item_recording, p, false))
         override fun onBindViewHolder(h: RecordingVH, pos: Int) {
-            val it = items[pos]
-            h.name.text = it.fileName
-            h.size.text = String.format("%.1f KB", it.sizeBytes / 1024.0)
+            val item = items[pos]
+            val totalSeconds = item.durationMs / 1000
+            h.name.text = item.fileName
+            h.size.text = String.format(
+                "%.1f KB · %02d:%02d · %s",
+                item.sizeBytes / 1024.0,
+                totalSeconds / 60,
+                totalSeconds % 60,
+                item.locationLabel,
+            )
+            h.play.setOnClickListener { playRecording(item) }
+            h.delete.setOnClickListener { confirmDeleteRecording(item) }
         }
     }
 }
