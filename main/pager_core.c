@@ -37,6 +37,8 @@ pager_act_t pager_handle(pager_t *p, pager_ev_t ev)
     case PAGER_EV_OK_CLICK:
         p->mode = PAGER_MODE_IN_PAGE;
         return PAGER_ACT_ENTER;
+    case PAGER_EV_OK_LONG:
+        return PAGER_ACT_SHUTDOWN;
     default:
         return PAGER_ACT_NONE;
     }

@@ -36,6 +36,7 @@ typedef enum {
     PAGER_ACT_FLIP,          // 翻页:当前页已改变,刷新卡片
     PAGER_ACT_ENTER,         // 进入当前页(翻页 → 页面)
     PAGER_ACT_BACK,          // 退回翻页模式(页面已退出)
+    PAGER_ACT_SHUTDOWN,      // Paging-mode long OK: software shutdown
     PAGER_ACT_PAGE_UP,       // 上键交给页面
     PAGER_ACT_PAGE_DOWN,     // 下键交给页面
     PAGER_ACT_PAGE_OK,       // 确定单击交给页面
@@ -49,10 +50,10 @@ typedef struct {
 // 初始化为翻页模式、第一页。
 void pager_init(pager_t *p);
 
-// 喂入一个按键事件,返回需要 UI 执行的动作。
-// 语义(与 docs/software-design/passport-sync-app.md §1 一致):
-//   翻页模式:上/下 = 翻页(循环);确定单击 = 进入;确定双击/长按 = 无操作
-//   页面模式:上/下/确定单击 = 交给页面;确定双击/长按 = 退回翻页
+// Feed one key event and return the UI action. Semantics match
+// docs/software-design/passport-sync-app.md section 1:
+//   Paging: UP/DOWN flips, OK click enters, OK long shuts down, double is no-op.
+//   In-page: UP/DOWN/OK click goes to the page; OK double/long returns.
 pager_act_t pager_handle(pager_t *p, pager_ev_t ev);
 
 #ifdef __cplusplus

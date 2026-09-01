@@ -32,6 +32,10 @@ run_static_checks() {
         tests/test_pager_core.c main/pager_core.c \
         -o "${test_dir}/test_pager_core"
     "${test_dir}/test_pager_core"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -DAPP_CHIME_SYNTH_ONLY -Imain \
+        tests/test_app_chime.c main/app_chime.c \
+        -o "${test_dir}/test_app_chime"
+    "${test_dir}/test_app_chime"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_adpcm_ima.c main/adpcm_ima.c \
         -o "${test_dir}/test_adpcm_ima" -lm

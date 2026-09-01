@@ -2,6 +2,7 @@
 // 初始化外设后直接进入"翻页模式"主界面(录音/当天日程/任务),不再有演示菜单。
 // 交互模型与 BLE 协议见 docs/software-design/passport-sync-app.md。
 #include "app_pager.h"
+#include "app_chime.h"
 #include "bsp_audio.h"
 #include "bsp_battery.h"
 #include "bsp_button.h"
@@ -11,6 +12,7 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include <stdbool.h>
 
 static const char *TAG = "main";
 
@@ -40,7 +42,8 @@ void app_main(void)
     if (bsp_battery_init() != ESP_OK) {
         ESP_LOGW(TAG, "电量计初始化失败,电量指示隐藏");
     }
-    if (bsp_audio_init() != ESP_OK) {
+    bool audio_ready = bsp_audio_init() == ESP_OK;
+    if (!audio_ready) {
         ESP_LOGW(TAG, "音频初始化失败,录音页将禁用");
     }
 
@@ -49,7 +52,11 @@ void app_main(void)
         bsp_lvgl_unlock();
     }
 
+    if (audio_ready && !app_chime_play(APP_CHIME_STARTUP)) {
+        ESP_LOGW(TAG, "startup chime playback failed");
+    }
+
     ESP_LOGI(TAG, "就绪:Battery=%d Audio=%d",
              (int)(bsp_battery_soc() >= 0),
-             (int)(bsp_audio_set_format(16000, 16, 1) == ESP_OK));
+             (int)audio_ready);
 }

@@ -42,15 +42,18 @@ cc -std=c11 -Wall -Wextra -Werror -Imain \
   tests/test_ui_pixel_math.c main/ui_pixel_math.c -o /tmp/test_ui_pixel_math
 cc -std=c11 -Wall -Wextra -Werror -Imain \
   tests/test_pager_core.c main/pager_core.c -o /tmp/test_pager_core
+cc -std=c11 -Wall -Wextra -Werror -DAPP_CHIME_SYNTH_ONLY -Imain \
+  tests/test_app_chime.c main/app_chime.c -o /tmp/test_app_chime
 cc -std=c11 -Wall -Wextra -Werror -lm -Imain \
   tests/test_adpcm_ima.c main/adpcm_ima.c -o /tmp/test_adpcm_ima
 cc -std=c11 -Wall -Wextra -Werror -Imain \
   tests/test_sync_proto.c main/sync_proto.c -o /tmp/test_sync_proto
 ```
 
-`test_pager_core` covers the paging/in-page state machine, `test_adpcm_ima`
-the IMA ADPCM encoder, and `test_sync_proto` the BLE frame codec, schedule/todo
-store, and local-time conversion.
+`test_pager_core` covers the paging/in-page state machine, `test_app_chime` the
+deterministic system-chime synthesis, `test_adpcm_ima` the IMA ADPCM encoder,
+and `test_sync_proto` the BLE frame codec, schedule/todo store, and local-time
+conversion.
 
 Use the unified validation entry point:
 

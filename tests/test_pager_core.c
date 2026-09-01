@@ -25,10 +25,10 @@ int main(void)
     assert(pager_handle(&p, PAGER_EV_UP) == PAGER_ACT_FLIP);
     assert(p.page == PAGER_PAGE_RECORD);
 
-    // 翻页模式:确定双击/长按 = 无操作,仍在翻页模式
+    // Paging mode: OK double is a no-op; OK long requests software shutdown.
     assert(pager_handle(&p, PAGER_EV_OK_DOUBLE) == PAGER_ACT_NONE);
     assert(p.mode == PAGER_MODE_PAGING);
-    assert(pager_handle(&p, PAGER_EV_OK_LONG) == PAGER_ACT_NONE);
+    assert(pager_handle(&p, PAGER_EV_OK_LONG) == PAGER_ACT_SHUTDOWN);
     assert(p.mode == PAGER_MODE_PAGING);
 
     // 进入页面:保留当前页,切到页面模式

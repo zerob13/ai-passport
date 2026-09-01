@@ -25,10 +25,17 @@ also fires a single click.
 | --- | --- |
 | UP / DOWN click | Flip page (Recording → Schedule → Todo, wraps) |
 | OK click | Enter the selected page (switch to in-page mode) |
-| OK double / long | No-op |
+| OK double | No-op |
+| OK long | Play the shutdown chime, turn off the display, and enter deep sleep |
 
 The paging screen shows one page card at a time (title, short hint, page
 indicator `N/3`) and the battery level in the sky area.
+
+Normal application startup plays an original short ascending system chime.
+Paging-mode shutdown plays an original descending chime before deep sleep.
+The dedicated hardware power button is not exposed through the documented BSP,
+so a hard power cut cannot reliably trigger firmware audio; power-cycle the
+hardware button to start again after software shutdown.
 
 ### In-page mode
 
@@ -186,6 +193,7 @@ at `AUDIO_START`).
 Pure C, no ESP-IDF/LVGL includes, covered by host tests (`tests/`):
 
 - `pager_core.*` — paging/in-page state machine (input events → actions).
+- `app_chime.*` — deterministic startup/shutdown PCM synthesis.
 - `adpcm_ima.*` — IMA ADPCM encoder.
 - `sync_proto.*` — framing, RX message apply (schedule/todo store), TX message
   build, audio-session lifecycle (idle → streaming → ended).

@@ -3,6 +3,7 @@ idf_component_register(
          "ui_pixel.c"
          "ui_pixel_math.c"
          "pager_core.c"
+         "app_chime.c"
          "adpcm_ima.c"
          "sync_proto.c"
          "sync_ble.c"

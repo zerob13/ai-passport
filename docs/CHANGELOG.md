@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Added original ascending startup and descending software-shutdown chimes;
+  holding OK in paging mode now plays the shutdown sound, turns off the display,
+  and enters deep sleep.
 - Stabilized CI APK signing so later builds can update an installed app
   without requiring data-destructive uninstallation.
 - Saved recordings as playable PCM WAV files in the public
@@ -50,7 +53,7 @@
 - Added host-testable cores with host tests: `pager_core` (paging state
   machine), `adpcm_ima` (IMA ADPCM encoder), and `sync_proto` (frame codec,
   schedule/todo store, local-time conversion). `tools/validate.sh --static`
-  now runs all four host-test binaries.
+  runs every host-test binary.
 - Kept the demo pages (`demo_*.c`) in the tree as reference but removed them
   from the firmware build.
 

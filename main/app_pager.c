@@ -1,6 +1,7 @@
 // main/app_pager.c —— 翻页模式 UI、模式切换、按键分发、共享电池指示。
 #include "app_pager.h"
 
+#include "app_chime.h"
 #include "app_record.h"
 #include "app_schedule.h"
 #include "app_todo.h"
@@ -10,6 +11,9 @@
 #include "ui_pixel.h"
 #include "lvgl.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include <string.h>
 
@@ -50,6 +54,42 @@ static lv_obj_t *s_paging_bat;
 static lv_obj_t *s_bat[APP_BATTERY_MAX];
 static int s_bat_soc = -1;           // 最近一次读数(-1 未知)
 static lv_timer_t *s_bat_timer;
+static volatile bool s_shutting_down;
+
+static void card_refresh(void);
+
+static void shutdown_task(void *arg)
+{
+    (void)arg;
+    if (!app_chime_play(APP_CHIME_SHUTDOWN)) {
+        ESP_LOGW(TAG, "shutdown chime playback failed");
+    }
+    vTaskDelay(pdMS_TO_TICKS(80));
+    bsp_display_backlight(0);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_deep_sleep_start();
+
+    ESP_LOGE(TAG, "deep sleep entry failed");
+    bsp_display_backlight(100);
+    if (bsp_lvgl_lock(500)) {
+        s_shutting_down = false;
+        card_refresh();
+        bsp_lvgl_unlock();
+    }
+    vTaskDelete(NULL);
+}
+
+static void request_shutdown(void)
+{
+    if (s_shutting_down) return;
+    s_shutting_down = true;
+    if (s_link_label) lv_label_set_text(s_link_label, "SHUTTING DOWN...");
+    if (xTaskCreate(shutdown_task, "app_shutdown", 3072, NULL, 5, NULL) != pdPASS) {
+        s_shutting_down = false;
+        card_refresh();
+        ESP_LOGE(TAG, "failed to create shutdown task");
+    }
+}
 
 // ============================================================================
 // 电池指示
@@ -202,7 +242,7 @@ static void paging_build(void)
     lv_obj_set_width(s_link_label, 220);
     lv_obj_set_pos(s_link_label, 10, 244);
     lv_obj_set_style_text_align(s_link_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_t *hint = ui_pixel_label(s_scr, "UP/DN MODE  |  OK OPEN",
+    lv_obj_t *hint = ui_pixel_label(s_scr, "UP/DN | OK OPEN | HOLD OFF",
                                     &lv_font_montserrat_14, UI_INK);
     lv_obj_set_width(hint, 220);
     lv_obj_set_pos(hint, 10, 264);
@@ -283,6 +323,9 @@ void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
         APP_PAGES[s_pager.page].exit();
         paging_build();
         break;
+    case PAGER_ACT_SHUTDOWN:
+        request_shutdown();
+        break;
     case PAGER_ACT_PAGE_UP:
     case PAGER_ACT_PAGE_DOWN:
     case PAGER_ACT_PAGE_OK:
@@ -300,6 +343,7 @@ void app_key_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
 void app_pager_start(void)
 {
     pager_init(&s_pager);
+    s_shutting_down = false;
     sync_ble_start(on_sync_evt);
     if (!s_bat_timer) {
         s_bat_timer = lv_timer_create(battery_tick, 5000, NULL);
