@@ -164,6 +164,6 @@ void app_todo_exit(void)
         s_bat = NULL;
         lv_obj_delete(s_scr);
         s_scr = NULL;
-        s_head_lbl = s_foot_lbl = s_sel_bg = NULL;
+        s_head_lbl = s_foot_lbl = NULL;
     }
 }
