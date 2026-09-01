@@ -27,6 +27,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Configure stable debug signing
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          test -n "${DEBUG_KEYSTORE_B64}"
+          install -d -m 0700 "${HOME}/.android"
+          printf '%s' "${DEBUG_KEYSTORE_B64}" | base64 --decode > "${HOME}/.android/debug.keystore"
+          chmod 0600 "${HOME}/.android/debug.keystore"
+
       - name: Restore Gradle cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:

@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Stabilized CI APK signing so later builds can update an installed app
+  without requiring data-destructive uninstallation.
 - Saved recordings as playable PCM WAV files in the public
   `Music/AI Passport` directory, added in-app playback and deletion, replaced
   the firmware recording dot with rotating cassette reels.

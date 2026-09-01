@@ -10,6 +10,16 @@ The build job restores ccache, runs `./tools/validate.sh --firmware` with ESP-ID
 
 All Actions are pinned to full commit SHAs. The build job has `contents: read`; only the tag release job receives `contents: write`.
 
+## Android APK signing
+
+`build-android.yml` requires the repository secret
+`ANDROID_DEBUG_KEYSTORE_B64`. It restores that base64-encoded keystore as the
+standard Gradle debug keystore before testing and packaging the APK. Keep the
+same secret across builds so a new CI APK can update an installed APK without
+removing its app data. The private keystore must remain in GitHub Actions
+Secrets and must never be committed; rotating or losing it requires users to
+uninstall the previously signed app before installing a replacement.
+
 ## Browser flashing
 
 Open `https://ai-passport.folotoy.cn/tools/web-flasher/`, connect the USB JTAG/serial device, select the release's merged `FoloToy-AI-Passport-full.bin`, choose a baud rate such as 460800, and write it from `0x0`. The browser performs local writing and verification; it does not upload the firmware file.

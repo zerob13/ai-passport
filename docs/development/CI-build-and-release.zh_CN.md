@@ -25,6 +25,14 @@
 
 构建 job 只有 `contents: read` 权限；仅 release job 在 tag 发布时获得 `contents: write`。所有 Action 均固定到完整 commit SHA，行尾注释保留对应发布版本，升级时需同时核对 SHA 与版本。
 
+## Android APK 签名
+
+`build-android.yml` 要求仓库 Secret `ANDROID_DEBUG_KEYSTORE_B64`。工作流在测试和打包前，
+将这个 base64 编码的 keystore 恢复为 Gradle 标准 debug keystore。后续构建必须持续使用
+同一个 Secret，新的 CI APK 才能覆盖安装且不删除 App 数据。私有 keystore 只能保存在
+GitHub Actions Secrets 中，禁止提交进仓库；若轮换或遗失，用户必须先卸载旧签名 App
+才能安装替代版本。
+
 ## 产物
 
 - `FoloToy-AI-Passport-full.bin`：合并后的完整固件，可直接烧录（唯一产物）。
