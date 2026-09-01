@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
+import android.provider.CalendarContract
 import android.provider.MediaStore
 import com.zerob13.aipassport.audio.WavRecording
 import com.zerob13.aipassport.proto.ScheduleItem
@@ -13,6 +14,7 @@ import com.zerob13.aipassport.proto.TodoItem
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.time.ZoneId
 
 /** 一次已保存的录音记录 */
 data class RecordingRecord(
@@ -34,53 +36,112 @@ class AppRepository(context: Context) {
         migrateLegacyRecordings()
     }
 
-    // ---------------- 日程 ----------------
-    fun loadSchedule(): MutableList<ScheduleItem> {
-        val list = mutableListOf<ScheduleItem>()
-        val raw = prefs.getString("schedule", null) ?: return list
+    // ---------------- Calendar ----------------
+    fun loadCalendarEvents(): MutableList<CalendarEventRecord> {
+        val list = mutableListOf<CalendarEventRecord>()
+        val raw = prefs.getString(KEY_CALENDAR_EVENTS, null) ?: return list
         val arr = JSONArray(raw)
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             list.add(
-                ScheduleItem(
-                    id = o.getInt("id"),
-                    startMin = o.getInt("start"),
-                    endMin = o.getInt("end"),
+                CalendarEventRecord(
+                    eventId = o.getLong("id"),
+                    beginMs = o.getLong("begin"),
+                    endMs = o.getLong("end"),
                     title = o.getString("title"),
+                    allDay = o.getBoolean("allDay"),
                 )
             )
         }
         return list
     }
 
-    fun saveSchedule(list: List<ScheduleItem>) {
+    fun calendarRange(): Pair<Int, Int> =
+        prefs.getInt(KEY_CALENDAR_PAST_DAYS, DEFAULT_PAST_DAYS) to
+            prefs.getInt(KEY_CALENDAR_FUTURE_DAYS, DEFAULT_FUTURE_DAYS)
+
+    /** Queries visible recurring and one-off calendar instances. Call from a worker thread. */
+    fun importCalendar(
+        pastDays: Int,
+        futureDays: Int,
+        nowMs: Long = System.currentTimeMillis(),
+    ): List<CalendarEventRecord> {
+        val window = CalendarSchedule.importWindow(
+            nowMs,
+            ZoneId.systemDefault(),
+            pastDays,
+            futureDays,
+        )
+        val projection = arrayOf(
+            CalendarContract.Instances.EVENT_ID,
+            CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END,
+            CalendarContract.Instances.TITLE,
+            CalendarContract.Instances.ALL_DAY,
+        )
+        val events = mutableListOf<CalendarEventRecord>()
+        CalendarContract.Instances.query(
+            appContext.contentResolver,
+            projection,
+            window.beginMs,
+            window.endExclusiveMs,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
+            val beginColumn = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            val endColumn = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
+            val titleColumn = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
+            val allDayColumn = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
+            while (cursor.moveToNext()) {
+                val title = cursor.getString(titleColumn).orEmpty().trim()
+                val begin = cursor.getLong(beginColumn)
+                val end = cursor.getLong(endColumn)
+                if (title.isEmpty() || end <= begin) continue
+                events.add(
+                    CalendarEventRecord(
+                        eventId = cursor.getLong(idColumn),
+                        beginMs = begin,
+                        endMs = end,
+                        title = title,
+                        allDay = cursor.getInt(allDayColumn) != 0,
+                    )
+                )
+            }
+        }
+        val imported = events
+            .distinctBy { Triple(it.eventId, it.beginMs, it.endMs) }
+            .sortedBy { it.beginMs }
+        saveCalendarEvents(imported, pastDays, futureDays)
+        return imported
+    }
+
+    fun loadTodaySchedule(nowMs: Long = System.currentTimeMillis()): List<ScheduleItem> =
+        CalendarSchedule.todayItems(
+            loadCalendarEvents(),
+            nowMs,
+            ZoneId.systemDefault(),
+        )
+
+    private fun saveCalendarEvents(
+        list: List<CalendarEventRecord>,
+        pastDays: Int,
+        futureDays: Int,
+    ) {
         val arr = JSONArray()
         list.forEach {
             arr.put(
                 JSONObject()
-                    .put("id", it.id)
-                    .put("start", it.startMin)
-                    .put("end", it.endMin)
+                    .put("id", it.eventId)
+                    .put("begin", it.beginMs)
+                    .put("end", it.endMs)
                     .put("title", it.title)
+                    .put("allDay", it.allDay)
             )
         }
-        prefs.edit().putString("schedule", arr.toString()).apply()
-    }
-
-    fun addSchedule(startMin: Int, endMin: Int, title: String): ScheduleItem {
-        val list = loadSchedule()
-        val nextId = (list.maxOfOrNull { it.id } ?: 0) + 1
-        val item = ScheduleItem(nextId, startMin, endMin, title)
-        list.add(item)
-        saveSchedule(list)
-        return item
-    }
-
-    fun deleteSchedule(id: Int): Boolean {
-        val list = loadSchedule()
-        val removed = list.removeAll { it.id == id }
-        if (removed) saveSchedule(list)
-        return removed
+        prefs.edit()
+            .putString(KEY_CALENDAR_EVENTS, arr.toString())
+            .putInt(KEY_CALENDAR_PAST_DAYS, pastDays)
+            .putInt(KEY_CALENDAR_FUTURE_DAYS, futureDays)
+            .apply()
     }
 
     // ---------------- Todo ----------------
@@ -235,5 +296,13 @@ class AppRepository(context: Context) {
                 }.getOrDefault(false)
                 if (converted) source.delete() else target.cancel()
             }
+    }
+
+    private companion object {
+        const val KEY_CALENDAR_EVENTS = "calendar_events"
+        const val KEY_CALENDAR_PAST_DAYS = "calendar_past_days"
+        const val KEY_CALENDAR_FUTURE_DAYS = "calendar_future_days"
+        const val DEFAULT_PAST_DAYS = 7
+        const val DEFAULT_FUTURE_DAYS = 30
     }
 }

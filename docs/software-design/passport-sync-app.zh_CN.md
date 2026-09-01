@@ -8,8 +8,8 @@
 `PASSPORT-SYNC` BLE 服务,以及基于 `ui_pixel` 主题构建的 LVGL 界面。
 
 目标:为 AI Passport 开发板(ESP32-C3、240x320 彩屏、三键、ES8311 麦克风/喇叭)
-开发配套设备端界面,通过 BLE 与手机 App 同步。手机 App 是同步中枢:它拥有日历与
-Todo 数据、归档录音,并向设备提供当前时间。
+开发配套设备端界面,通过 BLE 与手机 App 同步。手机 App 是同步中枢:它从 Android
+系统日历导入可见实例、维护 Todo、归档录音,并向设备提供当前时间。
 
 ## 1. 交互模型
 
@@ -165,6 +165,7 @@ IMA ADPCM 每采样 4 bit(codec id 1):16 kHz → 8 KB/s。编码器按块处理,
 | BLE 初始化失败 | 所有页面可用;录音页显示“无连接”,同步页显示“等待手机” |
 | 尚无手机数据 | 日程/Todo 页显示空态提示 |
 | 录音中 BLE 断链 | 先结束并停止录音,再提示错误 |
+| 拒绝日历权限 | 录音和 Todo 仍可使用,系统日历导入不可用 |
 | 电量读取失败 | 电量指示隐藏(优雅降级) |
 
 ## 6. 可主机测试的核心
@@ -181,14 +182,17 @@ IMA ADPCM 每采样 4 bit(codec id 1):16 kHz → 8 KB/s。编码器按块处理,
 
 1. 扫描 `FoloPassport`,连接,`requestMtu(512)`。
 2. 发现服务 `61692d70-6173-7370-6f72-742d73796e63`;订阅 TX 通知;写 RX。
-3. 每次连接按上文顺序推送:`HELLO` → 日程 → Todo。
-4. 录音:收到 `AUDIO_START` 打开文件;追加每条 `AUDIO_DATA` 负载;
-   收到 `AUDIO_END` 定稿。文件名用设备 `unix_time` 生成。
-5. 收到 `TODO_TOGGLE`:在 App 中标记完成/未完成。
-6. 可选:用 `STATUS` 展示电量与录音状态。
+3. 仅在用户选择导入日历时申请 `READ_CALENDAR`;按用户选择的过去/未来天数,
+   在非主线程查询可见 `CalendarContract.Instances`,保存导入范围,但不修改源日历。
+4. 每次连接按上文顺序推送:`HELLO` → 当天导入日程(最多 32 条)→ Todo。
+5. 录音:收到 `AUDIO_START` 打开文件并显示实时接收区;追加每条 `AUDIO_DATA`
+   时更新时长和接收字节数;收到 `AUDIO_END` 后定稿并刷新录音列表。列表提供播放
+   与删除,文件名用设备 `unix_time` 生成。
+6. 收到 `TODO_TOGGLE`:在 App 中标记完成/未完成。
+7. 用 `STATUS` 展示电量与录音状态。
 
-限制:数据仅存 RAM(连接时重推);字库中没有的字形显示为占位框;
-录音页的上/下键 v1 未使用。
+限制:App 可保存多日导入范围,但 v1 设备协议只在 RAM 中保留当天前 32 条日程,
+连接时重新下发;字库中没有的字形显示为占位框;录音页的上/下键 v1 未使用。
 
 相关:[开发指南](../development/agent-guide.zh_CN.md)、
 [硬件指南](../hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.zh_CN.md)、

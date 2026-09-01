@@ -30,15 +30,4 @@
 
     </LinearLayout>
 
-    <Button
-        android:id="@+id/item_delete"
-        style="?attr/borderlessButtonStyle"
-        android:layout_width="wrap_content"
-        android:layout_height="48dp"
-        android:minWidth="0dp"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:text="删除"
-        android:textColor="#B3261E" />
-
 </LinearLayout>

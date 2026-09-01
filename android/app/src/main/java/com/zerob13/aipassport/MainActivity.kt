@@ -3,7 +3,6 @@ package com.zerob13.aipassport
 
 import android.Manifest
 import android.app.AlertDialog
-import android.app.TimePickerDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -13,27 +12,35 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.NumberPicker
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zerob13.aipassport.ble.BleSyncClient
 import com.zerob13.aipassport.ble.SyncListener
 import com.zerob13.aipassport.data.AppRepository
+import com.zerob13.aipassport.data.CalendarEventRecord
 import com.zerob13.aipassport.data.RecordingRecord
 import com.zerob13.aipassport.databinding.ActivityMainBinding
 import com.zerob13.aipassport.proto.DeviceStatus
-import com.zerob13.aipassport.proto.ScheduleItem
 import com.zerob13.aipassport.proto.TodoItem
-import java.util.Calendar
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity(), SyncListener {
 
@@ -63,6 +70,15 @@ class MainActivity : AppCompatActivity(), SyncListener {
             }
         }
 
+    private val calendarPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                showCalendarImportDialog()
+            } else {
+                toast("需要日历读取权限才能导入系统日程")
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -87,7 +103,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
                 startScanAndConnect()
             }
         }
-        binding.btnAddSchedule.setOnClickListener { showAddScheduleDialog() }
+        binding.btnImportSchedule.setOnClickListener { requestCalendarImport() }
         binding.btnAddTodo.setOnClickListener { showAddTodoDialog() }
 
         refreshLists()
@@ -142,100 +158,93 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     // ---------------- 数据刷新 ----------------
     private fun refreshLists() {
-        scheduleAdapter.submitList(repo.loadSchedule())
-        todoAdapter.submitList(repo.loadTodos())
-        recordingAdapter.submitList(repo.loadRecordings())
+        val schedule = repo.loadCalendarEvents()
+        val todos = repo.loadTodos()
+        val recordings = repo.loadRecordings()
+        scheduleAdapter.submitList(schedule)
+        todoAdapter.submitList(todos)
+        recordingAdapter.submitList(recordings)
+        binding.recordingEmpty.visibility = if (recordings.isEmpty()) View.VISIBLE else View.GONE
         updateCounters()
     }
 
     private fun updateCounters() {
         val todos = repo.loadTodos()
         val done = todos.count { it.done }
-        binding.scheduleCount.text = "${repo.loadSchedule().size} 项"
+        val (pastDays, futureDays) = repo.calendarRange()
+        binding.scheduleCount.text =
+            "${repo.loadCalendarEvents().size} 项 · 过去 $pastDays 天 / 未来 $futureDays 天"
         binding.todoCount.text = "$done / ${todos.size} 完成"
     }
 
-    // ---------------- 新增日程 / Todo ----------------
-    private fun showAddScheduleDialog() {
-        val now = Calendar.getInstance()
-        var startMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-        var endMin = (startMin + 60).coerceAtMost(23 * 60 + 59)
-        if (startMin == endMin) {
-            startMin = 22 * 60
-            endMin = 23 * 60
+    // ---------------- Calendar import / Todo ----------------
+    private fun requestCalendarImport() {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_CALENDAR,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            showCalendarImportDialog()
+        } else {
+            calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
         }
+    }
 
+    private fun showCalendarImportDialog() {
+        val (savedPastDays, savedFutureDays) = repo.calendarRange()
         val padding = (24 * resources.displayMetrics.density).toInt()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, 0, padding, 0)
         }
-        val startButton = Button(this)
-        val endButton = Button(this)
-        val titleInput = EditText(this).apply {
-            hint = "标题"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            maxLines = 2
-        }
-
-        fun refreshTimeButtons() {
-            startButton.text = "开始时间  ${formatMinutes(startMin)}"
-            endButton.text = "结束时间  ${formatMinutes(endMin)}"
-        }
-        startButton.setOnClickListener {
-            showTimePicker(startMin) { selected ->
-                startMin = selected
-                if (endMin <= startMin) endMin = (startMin + 60).coerceAtMost(23 * 60 + 59)
-                refreshTimeButtons()
+        fun pickerRow(label: String, initial: Int): Pair<LinearLayout, NumberPicker> {
+            val picker = NumberPicker(this).apply {
+                minValue = 0
+                maxValue = 90
+                value = initial.coerceIn(minValue, maxValue)
             }
-        }
-        endButton.setOnClickListener {
-            showTimePicker(endMin) { selected ->
-                endMin = selected
-                refreshTimeButtons()
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                addView(TextView(this@MainActivity).apply {
+                    text = label
+                    textSize = 16f
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(picker)
             }
+            return row to picker
         }
-        refreshTimeButtons()
-        form.addView(startButton)
-        form.addView(endButton)
-        form.addView(titleInput)
+        val (pastRow, pastPicker) = pickerRow("过去天数", savedPastDays)
+        val (futureRow, futurePicker) = pickerRow("未来天数", savedFutureDays)
+        form.addView(pastRow)
+        form.addView(futureRow)
 
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("新增日程")
+        AlertDialog.Builder(this)
+            .setTitle("导入系统日历")
             .setView(form)
-            .setPositiveButton("保存", null)
+            .setPositiveButton("导入") { _, _ ->
+                importCalendar(pastPicker.value, futurePicker.value)
+            }
             .setNegativeButton("取消", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val title = titleInput.text.toString().trim()
-                when {
-                    title.isEmpty() -> toast("请输入日程标题")
-                    endMin <= startMin -> toast("结束时间必须晚于开始时间")
-                    else -> {
-                        repo.addSchedule(startMin, endMin, title)
-                        pushSnapshotIfConnected()
-                        refreshLists()
-                        dialog.dismiss()
-                    }
-                }
+            .show()
+    }
+
+    private fun importCalendar(pastDays: Int, futureDays: Int) {
+        binding.btnImportSchedule.isEnabled = false
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repo.importCalendar(pastDays, futureDays) }
+            }
+            binding.btnImportSchedule.isEnabled = true
+            result.onSuccess { events ->
+                refreshLists()
+                pushSnapshotIfConnected()
+                toast("已导入 ${events.size} 项，Passport 已同步今天的日程")
+            }.onFailure {
+                toast("系统日历导入失败")
             }
         }
-        dialog.show()
     }
-
-    private fun showTimePicker(initialMin: Int, onSelected: (Int) -> Unit) {
-        TimePickerDialog(
-            this,
-            { _, hour, minute -> onSelected(hour * 60 + minute) },
-            initialMin / 60,
-            initialMin % 60,
-            true,
-        ).show()
-    }
-
-    private fun formatMinutes(minutes: Int): String =
-        String.format("%02d:%02d", minutes / 60, minutes % 60)
 
     private fun showAddTodoDialog() {
         val input = android.widget.EditText(this).apply { hint = "任务内容" }
@@ -255,20 +264,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     }
 
     private fun pushSnapshotIfConnected() {
-        if (ble.isConnected) ble.pushSnapshot(repo.loadSchedule(), repo.loadTodos())
-    }
-
-    private fun confirmDeleteSchedule(item: ScheduleItem) {
-        AlertDialog.Builder(this)
-            .setTitle("删除日程")
-            .setMessage("确定删除「${item.title}」？")
-            .setPositiveButton("删除") { _, _ ->
-                repo.deleteSchedule(item.id)
-                pushSnapshotIfConnected()
-                refreshLists()
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        if (ble.isConnected) ble.pushSnapshot(repo.loadTodaySchedule(), repo.loadTodos())
     }
 
     private fun confirmDeleteTodo(item: TodoItem) {
@@ -346,8 +342,9 @@ class MainActivity : AppCompatActivity(), SyncListener {
         binding.btnConnect.text = if (connected) "断开" else "连接设备"
         binding.statusText.text = if (connected) "已连接 FoloPassport" else "未连接"
         binding.llMain.alpha = 1f
+        if (!connected) binding.recordingLive.visibility = View.GONE
         if (connected) {
-            ble.pushSnapshot(repo.loadSchedule(), repo.loadTodos())
+            ble.pushSnapshot(repo.loadTodaySchedule(), repo.loadTodos())
         }
     }
 
@@ -365,14 +362,29 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     override fun onRecordingStarted() {
         binding.statusText.text = "正在接收录音..."
+        binding.recordingLive.visibility = View.VISIBLE
+        binding.recordingLiveProgress.text = "00:00 · 0.0 KB"
+    }
+
+    override fun onRecordingProgress(durationMs: Long, receivedBytes: Long) {
+        val totalSeconds = durationMs / 1000
+        binding.recordingLiveProgress.text = String.format(
+            "%02d:%02d · %.1f KB",
+            totalSeconds / 60,
+            totalSeconds % 60,
+            receivedBytes / 1024.0,
+        )
     }
 
     override fun onRecordingFinished(fileName: String?, durationMs: Long, droppedBytes: Long) {
+        binding.recordingLive.visibility = View.GONE
         refreshLists()
-        toast("已保存到 音乐/AI Passport: $fileName (${durationMs / 1000}s)")
+        val dropped = if (droppedBytes > 0) "，丢失 $droppedBytes 字节" else ""
+        toast("录音已保存: $fileName (${durationMs / 1000}s$dropped)")
     }
 
     override fun onError(message: String) {
+        binding.recordingLive.visibility = View.GONE
         binding.statusText.text = message
         toast(message)
     }
@@ -381,12 +393,11 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private class ScheduleVH(v: View) : RecyclerView.ViewHolder(v) {
         val time = v.findViewById<android.widget.TextView>(R.id.item_time)
         val title = v.findViewById<android.widget.TextView>(R.id.item_title)
-        val delete = v.findViewById<Button>(R.id.item_delete)
     }
 
     private inner class ScheduleAdapter : RecyclerView.Adapter<ScheduleVH>() {
-        private val items = mutableListOf<ScheduleItem>()
-        fun submitList(list: List<ScheduleItem>) {
+        private val items = mutableListOf<CalendarEventRecord>()
+        fun submitList(list: List<CalendarEventRecord>) {
             items.clear(); items.addAll(list); notifyDataSetChanged()
         }
         override fun getItemCount() = items.size
@@ -394,15 +405,18 @@ class MainActivity : AppCompatActivity(), SyncListener {
             ScheduleVH(layoutInflater.inflate(R.layout.item_schedule, p, false))
         override fun onBindViewHolder(h: ScheduleVH, pos: Int) {
             val item = items[pos]
-            h.time.text = String.format(
-                "%02d:%02d - %02d:%02d",
-                item.startMin / 60,
-                item.startMin % 60,
-                item.endMin / 60,
-                item.endMin % 60,
-            )
+            val zone = if (item.allDay) ZoneOffset.UTC else ZoneId.systemDefault()
+            val start = Instant.ofEpochMilli(item.beginMs).atZone(zone)
+            val end = Instant.ofEpochMilli(item.endMs).atZone(zone)
+            val date = start.format(DATE_FORMAT)
+            h.time.text = if (item.allDay) {
+                "$date · 全天"
+            } else if (start.toLocalDate() == end.toLocalDate()) {
+                "$date · ${start.format(TIME_FORMAT)} - ${end.format(TIME_FORMAT)}"
+            } else {
+                "$date ${start.format(TIME_FORMAT)} - ${end.format(DATE_TIME_FORMAT)}"
+            }
             h.title.text = item.title
-            h.delete.setOnClickListener { confirmDeleteSchedule(item) }
         }
     }
 
@@ -468,5 +482,12 @@ class MainActivity : AppCompatActivity(), SyncListener {
             h.play.setOnClickListener { playRecording(item) }
             h.delete.setOnClickListener { confirmDeleteRecording(item) }
         }
+    }
+
+    private companion object {
+        val DATE_FORMAT: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("MM/dd EEE", Locale.SIMPLIFIED_CHINESE)
+        val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+        val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MM/dd HH:mm")
     }
 }

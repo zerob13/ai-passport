@@ -35,6 +35,67 @@
             android:layout_marginTop="8dp"
             android:text="连接设备" />
 
+        <!-- Recording -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="设备录音"
+            android:textColor="#17202A"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/recordingLive"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#FFFFFF"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="● LIVE · 正在接收 Passport 录音"
+                android:textColor="#B3261E"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/recordingLiveProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="00:00 · 0.0 KB"
+                android:textColor="#17202A"
+                android:textSize="18sp" />
+
+            <ProgressBar
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginTop="8dp"
+                android:indeterminate="true" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/recordingEmpty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="暂无录音；在 Passport 上开始录音后会实时保存到这里。"
+            android:textColor="#5A6A73"
+            android:textSize="13sp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recordingList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:nestedScrollingEnabled="false" />
+
         <!-- 日程 -->
         <TextView
             android:layout_width="wrap_content"
@@ -57,10 +118,10 @@
             android:layout_height="wrap_content"
             android:nestedScrollingEnabled="false" />
         <Button
-            android:id="@+id/btnAddSchedule"
+            android:id="@+id/btnImportSchedule"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="+ 新增日程" />
+            android:text="导入系统日历" />
 
         <!-- Todo -->
         <TextView
@@ -88,21 +149,6 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="+ 新增任务" />
-
-        <!-- 录音 -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="设备录音"
-            android:textColor="#17202A"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recordingList"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:nestedScrollingEnabled="false" />
 
     </LinearLayout>
 </ScrollView>

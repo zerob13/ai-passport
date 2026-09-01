@@ -33,6 +33,7 @@ interface SyncListener {
     fun onStatus(status: com.zerob13.aipassport.proto.DeviceStatus)
     fun onTodoToggle(id: Int, done: Boolean)
     fun onRecordingStarted()
+    fun onRecordingProgress(durationMs: Long, receivedBytes: Long)
     fun onRecordingFinished(fileName: String?, durationMs: Long, droppedBytes: Long)
     fun onError(message: String)
 }
@@ -63,6 +64,8 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     }
 
     private var recording: WavRecording? = null
+    private var recordingBytes = 0L
+    private var recordingSampleRate = 0
 
     val isConnected: Boolean get() = ready
 
@@ -303,7 +306,17 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
                 if (d != null && recording != null) {
                     if (recording?.writeAdpcm(d.second) != true) {
                         recording = null
+                        recordingBytes = 0
+                        recordingSampleRate = 0
                         listener.onError("录音写入失败")
+                    } else {
+                        recordingBytes += d.second.size
+                        val durationMs = if (recordingSampleRate > 0) {
+                            recordingBytes * 2 * 1000 / recordingSampleRate
+                        } else {
+                            0
+                        }
+                        listener.onRecordingProgress(durationMs, recordingBytes)
                     }
                 }
             }
@@ -338,12 +351,16 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
             listener.onError("无法创建录音文件")
             return false
         }
+        recordingBytes = 0
+        recordingSampleRate = meta.sampleRate
         return true
     }
 
     private fun finishRecording(meta: com.zerob13.aipassport.proto.RecordingMeta?) {
         val s = recording ?: return
         recording = null
+        recordingBytes = 0
+        recordingSampleRate = 0
         if (!s.finish()) {
             listener.onError("录音保存失败")
             return
@@ -358,6 +375,8 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     private fun cancelRecording() {
         val s = recording ?: return
         recording = null
+        recordingBytes = 0
+        recordingSampleRate = 0
         s.cancel()
     }
 

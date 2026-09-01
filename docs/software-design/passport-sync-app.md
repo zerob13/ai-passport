@@ -9,8 +9,8 @@ Applies to: `main/app_*.c`, `main/sync_*.c`, `main/adpcm_ima.*`, `main/pager_cor
 
 Scope: a companion-device UI for the AI Passport board (ESP32-C3, 240x320 LCD,
 3 ADC keys, ES8311 mic/speaker) that syncs with a phone app over BLE. The phone
-app is the sync hub: it owns the calendar and todo data, archives recordings,
-and provides the current time.
+app is the sync hub: it imports visible instances from the Android system
+calendar, owns todo data, archives recordings, and provides the current time.
 
 ## 1. Interaction model
 
@@ -186,6 +186,7 @@ at `AUDIO_START`).
 | BLE init fails | All pages work; recording shows "no link", sync pages show "waiting for phone" |
 | No phone data yet | Schedule/todo pages show empty-state hints |
 | BLE disconnect while recording | Recording finalizes and stops; error shown |
+| Calendar permission denied | Recording and todo remain available; system-calendar import stays disabled |
 | Battery read fails | Battery indicator hidden (graceful) |
 
 ## 6. Host-testable cores
@@ -203,15 +204,23 @@ Pure C, no ESP-IDF/LVGL includes, covered by host tests (`tests/`):
 1. Scan for `FoloPassport`, connect, `requestMtu(512)`.
 2. Discover the service `61692d70-6173-7370-6f72-742d73796e63`; enable
    notifications on TX; write to RX.
-3. On every connect: `HELLO` → schedule → todo push (order shown above).
-4. Recording: on `AUDIO_START` open a file; append each `AUDIO_DATA` payload;
-   on `AUDIO_END` finalize. Filename from device `unix_time`.
-5. On `TODO_TOGGLE`: mark the item done/undone in the app.
-6. Optional: show `STATUS` battery/recording state.
+3. Request `READ_CALENDAR` only when the user chooses calendar import. Query
+   visible `CalendarContract.Instances` off the main thread for the selected
+   past/future day range, persist the imported range, and do not edit the
+   source calendars.
+4. On every connect: `HELLO` → today's imported schedule (up to 32 items) →
+   todo push (order shown above).
+5. Recording: on `AUDIO_START` open a file and show the live receiver; append
+   each `AUDIO_DATA` payload while updating elapsed time and received bytes; on
+   `AUDIO_END` finalize and refresh the recording list. The list provides
+   playback and deletion. Filename comes from device `unix_time`.
+6. On `TODO_TOGGLE`: mark the item done/undone in the app.
+7. Show `STATUS` battery/recording state.
 
-Limitations: v1 keeps data in RAM only (re-push on connect); UI text without a
-glyph in the CJK subset renders as a placeholder box; UP/DOWN on the recording
-page is unused in v1.
+Limitations: the app may retain a multi-day imported calendar range, but the v1
+device protocol keeps only today's first 32 events in RAM and re-pushes them on
+connect. UI text without a glyph in the CJK subset renders as a placeholder
+box; UP/DOWN on the recording page is unused in v1.
 
 Related: [agent guide](../development/agent-guide.md),
 [hardware guide](../hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md),

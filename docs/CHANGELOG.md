@@ -14,9 +14,12 @@
   and enters deep sleep.
 - Stabilized CI APK signing so later builds can update an installed app
   without requiring data-destructive uninstallation.
-- Saved recordings as playable PCM WAV files in the public
-  `Music/AI Passport` directory, added in-app playback and deletion, replaced
-  the firmware recording dot with rotating cassette reels.
+- Replaced manual schedule entry with read-only Android system-calendar import;
+  users choose the number of past and future days, the app keeps that imported
+  range, and the Passport receives today's events on sync.
+- Streams recordings into an animated live receiver, finalizes them as playable
+  PCM WAV files in the public `Music/AI Passport` directory, lists them in the
+  app with playback and deletion, and uses rotating cassette reels on firmware.
 - Fixed compressed Chinese/Latin title rendering on the Passport, preserved
   UTF-8 boundaries when truncating titles, and added native schedule time
   pickers plus schedule/todo deletion to the Android app.
