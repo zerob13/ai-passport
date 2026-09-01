@@ -24,8 +24,13 @@ object SyncProtocol {
 
     const val PROTO_VER = 1
     const val MAX_TITLE = 60
+    const val MAX_MEDIA_SOURCE = 24
     const val MAX_PAYLOAD = 240
     const val AUDIO_DATA_MAX = MAX_PAYLOAD - 2 // seq(2B) 之外的负载上限
+    const val MEDIA_ART_WIDTH = 96
+    const val MEDIA_ART_HEIGHT = 96
+    const val MEDIA_ART_BYTES = MEDIA_ART_WIDTH * MEDIA_ART_HEIGHT * 2
+    const val MEDIA_ART_CHUNK = MAX_PAYLOAD - 2 // offset u16 之外的负载上限
     const val CODEC_IMA_ADPCM = 1
 
     // 帧头
@@ -37,6 +42,12 @@ object SyncProtocol {
     const val RX_SCHEDULE_ADD = 0x03
     const val RX_TODO_CLEAR = 0x05
     const val RX_TODO_ADD = 0x06
+    const val RX_MEDIA_CLEAR = 0x08
+    const val RX_MEDIA_INFO = 0x09
+    const val RX_MEDIA_ART_BEGIN = 0x0A
+    const val RX_MEDIA_ART_DATA = 0x0B
+    const val RX_MEDIA_ART_END = 0x0C
+    const val RX_MEDIA_PROGRESS = 0x0D
 
     // TX(设备→手机)消息类型
     const val TX_AUDIO_START = 0x10
@@ -48,6 +59,8 @@ object SyncProtocol {
     // 状态标志
     const val FLAG_RECORDING = 0x01
     const val FLAG_CHARGING = 0x02
+    const val MEDIA_FLAG_PLAYING = 0x01
+    const val MEDIA_FLAG_HAS_ART = 0x02
 }
 
 /** 一条日程(与设备端 sync_sched_item_t 对齐) */
@@ -82,6 +95,18 @@ data class RecordingMeta(
     val durationMs: Long,
     val pcmSamples: Long,
     val droppedBytes: Long,
+)
+
+/** Android MediaSession 当前播放快照。封面是固定 96x96 RGB565 little-endian。 */
+data class NowPlaying(
+    val title: String,
+    val artist: String,
+    val album: String,
+    val source: String,
+    val durationMs: Long,
+    val positionMs: Long,
+    val playing: Boolean,
+    val artworkRgb565: ByteArray?,
 )
 
 /** 帧编解码(纯 Kotlin,可 JVM 测试) */
@@ -138,11 +163,11 @@ object FrameCodec {
 
 /** 手机→设备 消息构造(纯 Kotlin,可 JVM 测试) */
 object RxMessages {
-    private fun titleBytes(title: String): ByteArray {
-        val bytes = title.encodeToByteArray()
-        if (bytes.size <= SyncProtocol.MAX_TITLE) return bytes
+    private fun textBytes(text: String, maxBytes: Int): ByteArray {
+        val bytes = text.encodeToByteArray()
+        if (bytes.size <= maxBytes) return bytes
 
-        var length = SyncProtocol.MAX_TITLE
+        var length = maxBytes
         while (length > 0 && (bytes[length].toInt() and 0xC0) == 0x80) length--
         return bytes.copyOf(length)
     }
@@ -161,7 +186,7 @@ object RxMessages {
 
     /** SCHEDULE_ADD: id u16, start u16, end u16, title_len u8, title */
     fun scheduleAdd(item: ScheduleItem): ByteArray? {
-        val t = titleBytes(item.title)
+        val t = textBytes(item.title, SyncProtocol.MAX_TITLE)
         val titleLen = t.size
         val p = ByteArray(7 + titleLen)
         FrameCodec.putU16(p, 0, item.id)
@@ -177,7 +202,7 @@ object RxMessages {
 
     /** TODO_ADD: id u16, done u8, title_len u8, title */
     fun todoAdd(item: TodoItem): ByteArray? {
-        val t = titleBytes(item.title)
+        val t = textBytes(item.title, SyncProtocol.MAX_TITLE)
         val titleLen = t.size
         val p = ByteArray(4 + titleLen)
         FrameCodec.putU16(p, 0, item.id)
@@ -185,6 +210,60 @@ object RxMessages {
         p[3] = titleLen.toByte()
         t.copyInto(p, 4, 0, titleLen)
         return FrameCodec.encode(SyncProtocol.RX_TODO_ADD, p)
+    }
+
+    fun mediaClear(): ByteArray? =
+        FrameCodec.encode(SyncProtocol.RX_MEDIA_CLEAR, ByteArray(0))
+
+    /** MEDIA_INFO: flags, duration/position, then title/artist/album/source. */
+    fun mediaInfo(item: NowPlaying): ByteArray? {
+        val parts = arrayOf(
+            textBytes(item.title, SyncProtocol.MAX_TITLE),
+            textBytes(item.artist, SyncProtocol.MAX_TITLE),
+            textBytes(item.album, SyncProtocol.MAX_TITLE),
+            textBytes(item.source, SyncProtocol.MAX_MEDIA_SOURCE),
+        )
+        val p = ByteArray(9 + parts.sumOf { 1 + it.size })
+        p[0] = ((if (item.playing) SyncProtocol.MEDIA_FLAG_PLAYING else 0) or
+            (if (item.artworkRgb565 != null) SyncProtocol.MEDIA_FLAG_HAS_ART else 0)).toByte()
+        FrameCodec.putU32(p, 1, item.durationMs)
+        FrameCodec.putU32(p, 5, item.positionMs)
+        var offset = 9
+        parts.forEach { text ->
+            p[offset++] = text.size.toByte()
+            text.copyInto(p, offset)
+            offset += text.size
+        }
+        return FrameCodec.encode(SyncProtocol.RX_MEDIA_INFO, p)
+    }
+
+    /** ART_BEGIN + ordered offset chunks + ART_END. Invalid-sized art is skipped. */
+    fun mediaArtworkFrames(art: ByteArray): List<ByteArray> {
+        if (art.size != SyncProtocol.MEDIA_ART_BYTES) return emptyList()
+        val frames = ArrayList<ByteArray>(2 + art.size / SyncProtocol.MEDIA_ART_CHUNK)
+        val total = ByteArray(2)
+        FrameCodec.putU16(total, 0, art.size)
+        FrameCodec.encode(SyncProtocol.RX_MEDIA_ART_BEGIN, total)?.let(frames::add)
+        var offset = 0
+        while (offset < art.size) {
+            val count = minOf(SyncProtocol.MEDIA_ART_CHUNK, art.size - offset)
+            val payload = ByteArray(2 + count)
+            FrameCodec.putU16(payload, 0, offset)
+            art.copyInto(payload, 2, offset, offset + count)
+            FrameCodec.encode(SyncProtocol.RX_MEDIA_ART_DATA, payload)?.let(frames::add)
+            offset += count
+        }
+        FrameCodec.encode(SyncProtocol.RX_MEDIA_ART_END, total)?.let(frames::add)
+        return frames
+    }
+
+    /** MEDIA_PROGRESS: flags u8, position_ms u32, duration_ms u32. */
+    fun mediaProgress(positionMs: Long, durationMs: Long, playing: Boolean): ByteArray? {
+        val p = ByteArray(9)
+        p[0] = if (playing) SyncProtocol.MEDIA_FLAG_PLAYING.toByte() else 0
+        FrameCodec.putU32(p, 1, positionMs)
+        FrameCodec.putU32(p, 5, durationMs)
+        return FrameCodec.encode(SyncProtocol.RX_MEDIA_PROGRESS, p)
     }
 }
 

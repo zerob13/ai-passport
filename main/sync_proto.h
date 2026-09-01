@@ -14,9 +14,14 @@ extern "C" {
 #define SYNC_MAX_TITLE      60       // 标题上限(UTF-8 字节)
 #define SYNC_MAX_SCHED      32       // 当天日程上限
 #define SYNC_MAX_TODO       32       // Todo 上限
+#define SYNC_MAX_MEDIA_SOURCE 24     // 播放器名称上限(UTF-8 字节)
 #define SYNC_MAX_PAYLOAD    240      // 单帧负载上限(兼容 MTU 247)
 #define SYNC_AUDIO_DATA_MAX (SYNC_MAX_PAYLOAD - 2) // AUDIO_DATA minus seq u16
 #define SYNC_FRAME_MAX      (3 + SYNC_MAX_PAYLOAD)
+#define SYNC_MEDIA_ART_W    96
+#define SYNC_MEDIA_ART_H    96
+#define SYNC_MEDIA_ART_PIXELS (SYNC_MEDIA_ART_W * SYNC_MEDIA_ART_H)
+#define SYNC_MEDIA_ART_BYTES  (SYNC_MEDIA_ART_PIXELS * 2)
 
 // 帧: [0xA5][type][len][payload]  —— len = payload 长度,多字节字段小端序。
 
@@ -26,6 +31,12 @@ extern "C" {
 #define SYNC_RX_SCHEDULE_ADD    0x03 // id u16, start_min u16, end_min u16, title_len u8, title
 #define SYNC_RX_TODO_CLEAR      0x05 // 清空 Todo
 #define SYNC_RX_TODO_ADD        0x06 // id u16, done u8, title_len u8, title
+#define SYNC_RX_MEDIA_CLEAR     0x08 // 清空 Now Playing
+#define SYNC_RX_MEDIA_INFO      0x09 // flags, duration/position, title/artist/album/source
+#define SYNC_RX_MEDIA_ART_BEGIN 0x0A // total_bytes u16
+#define SYNC_RX_MEDIA_ART_DATA  0x0B // offset u16, RGB565 bytes
+#define SYNC_RX_MEDIA_ART_END   0x0C // total_bytes u16
+#define SYNC_RX_MEDIA_PROGRESS  0x0D // flags u8, position_ms u32, duration_ms u32
 
 // TX(设备 → 手机)消息类型
 #define SYNC_TX_AUDIO_START     0x10 // unix_time u32, sample_rate u16, codec u8, channels u8
@@ -40,6 +51,10 @@ extern "C" {
 // 录音标志位(STATUS.flags)
 #define SYNC_FLAG_RECORDING     0x01
 #define SYNC_FLAG_CHARGING      0x02
+
+// Now Playing flags.
+#define SYNC_MEDIA_FLAG_PLAYING 0x01
+#define SYNC_MEDIA_FLAG_HAS_ART 0x02
 
 typedef struct {
     uint16_t id;
@@ -57,6 +72,26 @@ typedef struct {
 } sync_todo_item_t;
 
 typedef struct {
+    bool     active;
+    bool     playing;
+    bool     has_art;
+    bool     art_ready;
+    uint32_t duration_ms;
+    uint32_t position_ms;
+    uint8_t  title_len;
+    char     title[SYNC_MAX_TITLE + 1];
+    uint8_t  artist_len;
+    char     artist[SYNC_MAX_TITLE + 1];
+    uint8_t  album_len;
+    char     album[SYNC_MAX_TITLE + 1];
+    uint8_t  source_len;
+    char     source[SYNC_MAX_MEDIA_SOURCE + 1];
+    uint16_t art_expected;
+    uint16_t art_received;
+    uint16_t art_rgb565[SYNC_MEDIA_ART_PIXELS];
+} sync_media_t;
+
+typedef struct {
     bool     time_set;
     uint32_t unix_time;          // 上次 HELLO 的时间(秒)
     int16_t  tz_min;             // UTC 东侧分钟数
@@ -64,6 +99,7 @@ typedef struct {
     uint16_t sched_count;
     sync_todo_item_t  todos[SYNC_MAX_TODO];
     uint16_t todo_count;
+    sync_media_t media;
 } sync_store_t;
 
 void sync_store_init(sync_store_t *st);

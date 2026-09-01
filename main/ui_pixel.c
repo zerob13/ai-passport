@@ -34,7 +34,7 @@ lv_obj_t *ui_pixel_screen_create(const char *title)
     lv_obj_set_style_pad_all(scr, 0, 0);
 
     block(scr, 10, 8, 4, 4, UI_RED);
-    lv_obj_t *brand = ui_pixel_label(scr, "AI / PASSPORT", &lv_font_montserrat_14,
+    lv_obj_t *brand = ui_pixel_label(scr, "AI / DimOS", &lv_font_montserrat_14,
                                      UI_SUBTLE);
     lv_obj_set_pos(brand, 20, 0);
     lv_obj_set_style_text_letter_space(brand, 1, 0);
@@ -59,17 +59,17 @@ lv_obj_t *ui_pixel_panel_create(lv_obj_t *parent, int x, int y, int w, int h,
 
 lv_obj_t *ui_pixel_nav_create(lv_obj_t *parent, int active_index)
 {
-    static const char *tabs[] = { "REC", "DAYS", "TODO" };
+    static const char *tabs[] = { "REC", "DAYS", "TODO", "MUSIC" };
     lv_obj_t *nav = block(parent, 0, 286, 240, 34, UI_SURFACE);
     block(nav, 0, 0, 240, 1, UI_INK);
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *label = ui_pixel_label(nav, tabs[i], &lv_font_montserrat_14,
                                          i == active_index ? UI_INK : UI_SUBTLE);
-        lv_obj_set_width(label, 80);
-        lv_obj_set_pos(label, i * 80, 5);
+        lv_obj_set_width(label, 60);
+        lv_obj_set_pos(label, i * 60, 5);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        if (i == active_index) block(nav, i * 80 + 37, 27, 6, 2, UI_INK);
+        if (i == active_index) block(nav, i * 60 + 27, 27, 6, 2, UI_INK);
     }
     return nav;
 }

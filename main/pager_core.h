@@ -13,6 +13,7 @@ typedef enum {
     PAGER_PAGE_RECORD = 0,   // 录音
     PAGER_PAGE_SCHEDULE,     // 当天日程
     PAGER_PAGE_TODO,         // 任务 Todo
+    PAGER_PAGE_MUSIC,        // 手机当前播放
     PAGER_PAGE_COUNT,
 } pager_page_t;
 

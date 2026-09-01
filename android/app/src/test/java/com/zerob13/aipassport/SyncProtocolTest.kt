@@ -4,7 +4,9 @@ package com.zerob13.aipassport
 
 import com.zerob13.aipassport.audio.ImaAdpcmDecoder
 import com.zerob13.aipassport.audio.PcmWav
+import com.zerob13.aipassport.media.rgb565Bytes
 import com.zerob13.aipassport.proto.FrameCodec
+import com.zerob13.aipassport.proto.NowPlaying
 import com.zerob13.aipassport.proto.RxMessages
 import com.zerob13.aipassport.proto.ScheduleItem
 import com.zerob13.aipassport.proto.SyncProtocol
@@ -135,6 +137,87 @@ class SyncProtocolTest {
         assertEquals(1, p[2].toInt())
         assertEquals(6, p[3].toInt())
         assertEquals("Call B", p.copyOfRange(4, 10).toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun mediaInfoArtworkAndProgressMessages() {
+        val art = ByteArray(SyncProtocol.MEDIA_ART_BYTES) { (it and 0xFF).toByte() }
+        val item = NowPlaying(
+            title = "Song",
+            artist = "Artist",
+            album = "Album",
+            source = "SPOTIFY",
+            durationMs = 240_000,
+            positionMs = 12_345,
+            playing = true,
+            artworkRgb565 = art,
+        )
+        val info = FrameCodec.decode(
+            RxMessages.mediaInfo(item)!!,
+            0,
+            RxMessages.mediaInfo(item)!!.size,
+        )!!
+        assertEquals(SyncProtocol.RX_MEDIA_INFO, info.type)
+        assertEquals(
+            SyncProtocol.MEDIA_FLAG_PLAYING or SyncProtocol.MEDIA_FLAG_HAS_ART,
+            info.payload[0].toInt() and 0xFF,
+        )
+        assertEquals(240_000L, FrameCodec.getU32(info.payload, 1))
+        assertEquals(12_345L, FrameCodec.getU32(info.payload, 5))
+        var textOffset = 9
+        listOf("Song", "Artist", "Album", "SPOTIFY").forEach { expected ->
+            val length = info.payload[textOffset++].toInt() and 0xFF
+            assertEquals(
+                expected,
+                info.payload.copyOfRange(textOffset, textOffset + length)
+                    .toString(Charsets.UTF_8),
+            )
+            textOffset += length
+        }
+        assertEquals(info.payload.size, textOffset)
+
+        val artFrames = RxMessages.mediaArtworkFrames(art)
+        assertEquals(80, artFrames.size)
+        assertEquals(
+            SyncProtocol.RX_MEDIA_ART_BEGIN,
+            FrameCodec.decode(artFrames.first(), 0, artFrames.first().size)!!.type,
+        )
+        val rebuilt = ByteArray(art.size)
+        artFrames.drop(1).dropLast(1).forEach { encoded ->
+            val frame = FrameCodec.decode(encoded, 0, encoded.size)!!
+            assertEquals(SyncProtocol.RX_MEDIA_ART_DATA, frame.type)
+            val offset = FrameCodec.getU16(frame.payload, 0)
+            frame.payload.copyInto(rebuilt, offset, 2)
+        }
+        assertArrayEquals(art, rebuilt)
+        assertEquals(
+            SyncProtocol.RX_MEDIA_ART_END,
+            FrameCodec.decode(artFrames.last(), 0, artFrames.last().size)!!.type,
+        )
+
+        val progressFrame = RxMessages.mediaProgress(23_000, 240_000, false)!!
+        val progress = FrameCodec.decode(progressFrame, 0, progressFrame.size)!!
+        assertEquals(SyncProtocol.RX_MEDIA_PROGRESS, progress.type)
+        assertEquals(0, progress.payload[0].toInt())
+        assertEquals(23_000L, FrameCodec.getU32(progress.payload, 1))
+        assertEquals(240_000L, FrameCodec.getU32(progress.payload, 5))
+        assertEquals(0, RxMessages.mediaArtworkFrames(ByteArray(3)).size)
+    }
+
+    @Test
+    fun artworkPixelsBecomeLittleEndianRgb565() {
+        assertArrayEquals(
+            byteArrayOf(
+                0x00, 0xF8.toByte(),
+                0xE0.toByte(), 0x07,
+                0x1F, 0x00,
+                0xFF.toByte(), 0xFF.toByte(),
+            ),
+            rgb565Bytes(
+                intArrayOf(0xFFFF0000.toInt(), 0xFF00FF00.toInt(),
+                    0xFF0000FF.toInt(), 0xFFFFFFFF.toInt())
+            ),
+        )
     }
 
     @Test

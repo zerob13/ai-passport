@@ -141,8 +141,8 @@ internal class WavRecording private constructor(
     }
 
     companion object {
-        const val RELATIVE_PATH = "Music/AI Passport/"
-        const val LOCATION_LABEL = "音乐/AI Passport"
+        const val RELATIVE_PATH = "Music/DimOS/"
+        const val LOCATION_LABEL = "音乐/DimOS"
 
         fun create(context: Context, fileName: String, sampleRate: Int): WavRecording? {
             val appContext = context.applicationContext

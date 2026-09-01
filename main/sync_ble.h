@@ -14,6 +14,7 @@ typedef enum {
     SYNC_BLE_CONNECTED = 0,    // 已建链(可能尚未完成 MTU/订阅)
     SYNC_BLE_DISCONNECTED,     // 断链
     SYNC_BLE_DATA,             // 收到并处理了一帧 RX 数据(store 已更新)
+    SYNC_BLE_MEDIA,            // Now Playing 状态已更新(封面分片完成后才触发)
 } sync_ble_evt_t;
 
 typedef void (*sync_ble_cb_t)(sync_ble_evt_t ev);

@@ -72,7 +72,13 @@ static int rx_access(uint16_t conn_handle, uint16_t attr_handle,
     if (handled == SYNC_RX_HELLO) {
         s_hello_us = esp_timer_get_time();   // 记录对时时刻,供 sync_ble_now()
     }
-    if (s_cb) s_cb(SYNC_BLE_DATA);       // store 已更新,UI 可刷新
+    if (!s_cb || handled == 0 || handled == SYNC_RX_MEDIA_ART_BEGIN ||
+        handled == SYNC_RX_MEDIA_ART_DATA) {
+        return 0;
+    }
+    bool media = handled >= SYNC_RX_MEDIA_CLEAR &&
+                 handled <= SYNC_RX_MEDIA_PROGRESS;
+    s_cb(media ? SYNC_BLE_MEDIA : SYNC_BLE_DATA);
     return 0;
 }
 
@@ -173,6 +179,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         s_connected = false;
         s_subscribed = false;
+        memset(&s_store.media, 0, sizeof(s_store.media));
         ESP_LOGI(TAG, "手机已断开");
         if (s_cb) s_cb(SYNC_BLE_DISCONNECTED);
         advertise();

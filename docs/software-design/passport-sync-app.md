@@ -2,7 +2,7 @@
   <a href="passport-sync-app.zh_CN.md">简体中文</a> · <strong>English</strong>
 </p>
 
-# AI Passport Sync App — Design
+# DimOS Sync App — AI Passport Design
 
 Applies to: `main/app_*.c`, `main/sync_*.c`, `main/adpcm_ima.*`, `main/pager_core.*`, the
 `PASSPORT-SYNC` BLE service, and the LVGL screens built from `ui_pixel` theme.
@@ -10,7 +10,8 @@ Applies to: `main/app_*.c`, `main/sync_*.c`, `main/adpcm_ima.*`, `main/pager_cor
 Scope: a companion-device UI for the AI Passport board (ESP32-C3, 240x320 LCD,
 3 ADC keys, ES8311 mic/speaker) that syncs with a phone app over BLE. The phone
 app is the sync hub: it imports visible instances from the Android system
-calendar, owns todo data, archives recordings, and provides the current time.
+calendar, owns todo data, archives recordings, reads the active Android media
+session, and provides the current time and now-playing state.
 
 ## 1. Interaction model
 
@@ -23,13 +24,16 @@ also fires a single click.
 
 | Key | Action |
 | --- | --- |
-| UP / DOWN click | Flip page (Recording → Schedule → Todo, wraps) |
+| UP / DOWN click | Flip page (Recording → Schedule → Todo → Music, wraps) |
 | OK click | Enter the selected page (switch to in-page mode) |
 | OK double | No-op |
 | OK long | Play the shutdown chime, turn off the display, and enter deep sleep |
 
-The paging screen shows one page card at a time (title, short hint, page
-indicator `N/3`) and the battery level in the sky area.
+The paging screen shows four compact page cards, highlights the current card,
+uses a `N/4` indicator, and shows battery level in the header. All firmware
+branding visible to users says `DimOS`. The BLE name `FoloPassport`, service
+UUIDs, and protocol identifiers remain unchanged for compatibility with
+released apps and flashing tools.
 
 Normal application startup plays an original short ascending system chime.
 Paging-mode shutdown plays an original descending chime before deep sleep.
@@ -77,6 +81,18 @@ UI before its screen is deleted.
      `TODO_TOGGLE` to the phone (last writer wins on the phone side).
    - Shows checkboxes, `X/Y` counters (done / total).
 
+4. **Music** — `app_music.c`
+   - The phone reads the active Android `MediaSession`. Spotify works without a
+     Spotify login, SDK, or developer key, and other players exposing a standard
+     media session work through the same path.
+   - Shows player, track, artist, album, 96×96 artwork, play/pause state, and
+     live progress.
+   - A track change resends metadata and artwork. The phone corrects progress
+     once per second; the device interpolates between corrections using its
+     monotonic clock.
+   - The page has no transport controls. UP, DOWN, and OK click are no-ops;
+     OK double or long returns to paging mode.
+
 ## 2. Time
 
 The device has no RTC. The phone sends POSIX time + timezone offset in `HELLO`
@@ -122,12 +138,19 @@ Invalid header → link is de-synchronized; the phone reconnects.
 | `0x03` | `SCHEDULE_ADD` | `id u16`, `start_min u16` (minutes since midnight), `end_min u16`, `title_len u8` (≤ 60), `title utf8` |
 | `0x05` | `TODO_CLEAR` | — |
 | `0x06` | `TODO_ADD` | `id u16`, `done u8`, `title_len u8` (≤ 60), `title utf8` |
+| `0x08` | `MEDIA_CLEAR` | — |
+| `0x09` | `MEDIA_INFO` | `flags u8` (bit0 = playing, bit1 = has artwork), `duration_ms u32`, `position_ms u32`, followed by track/artist/album/player as four `len u8 + utf8` values; first three ≤ 60 B, player ≤ 24 B |
+| `0x0A` | `MEDIA_ART_BEGIN` | `total_bytes u16` (fixed at 18432) |
+| `0x0B` | `MEDIA_ART_DATA` | `offset u16`, ordered little-endian RGB565 bytes (≤ 238 B) |
+| `0x0C` | `MEDIA_ART_END` | `total_bytes u16` (fixed at 18432) |
+| `0x0D` | `MEDIA_PROGRESS` | `flags u8` (bit0 = playing), `position_ms u32`, `duration_ms u32` |
 
 `SCHEDULE_ADD` / `TODO_ADD` insert or replace the item with the same `id`.
 Titles are UTF-8; the screen renders them with the embedded CJK font, missing
 glyphs fall back to the Latin font. The store keeps only today's schedule and
 the full todo list, in RAM (phone re-pushes on every connect; nothing is
-persisted to flash).
+persisted to flash). Artwork is fixed at 96×96 RGB565 and becomes visible only
+after its ordering and total length validate; an incomplete image is never drawn.
 
 ### TX: device → phone notifications
 
@@ -143,12 +166,13 @@ persisted to flash).
 
 - **Connect**: phone connects → requests MTU → subscribes to TX notify →
   sends `HELLO` → `SCHEDULE_CLEAR` + `SCHEDULE_ADD`×N → `TODO_CLEAR` +
-  `TODO_ADD`×N. The device replies `STATUS` when the link is established.
+  `TODO_ADD`×N. It then sends `MEDIA_INFO` and artwork when a media session is
+  active, otherwise `MEDIA_CLEAR`. The device replies `STATUS` on link setup.
 - **Recording**: OK starts → `AUDIO_START` → live `AUDIO_DATA` stream
   (approximately one notification every 60 ms) → OK stops or page exit →
   `AUDIO_END`. The phone decodes each `AUDIO_DATA` payload and finalizes a
   standard 16 kHz, mono, 16-bit PCM WAV file (for example,
-  `REC-YYYYMMDD-HHMMSS.wav`) in the public `Music/AI Passport` directory. A
+  `REC-YYYYMMDD-HHMMSS.wav`) in the public `Music/DimOS` directory. A
   dropped link mid-recording has no `AUDIO_END`, so the pending partial file is
   discarded.
 - **Todo toggle**: device sends `TODO_TOGGLE`; the phone applies it (last
@@ -156,6 +180,10 @@ persisted to flash).
   the new `done` state.
 - **Status**: `STATUS` is sent on connect and whenever battery or recording
   state changes; the phone may use it for its own UI.
+- **Now playing**: track change → `MEDIA_INFO` → `MEDIA_ART_BEGIN` →
+  `MEDIA_ART_DATA`×78 → `MEDIA_ART_END`; while active, `MEDIA_PROGRESS` is sent
+  once per second. A rapid track change removes stale media chunks from the
+  write queue, and only the newest pending progress frame is retained.
 
 ### Flow control and reliability
 
@@ -164,6 +192,9 @@ what an MTU-247+ link sustains, so no credit mechanism is needed. `seq` lets
 the phone detect gaps. The recording task paces itself through its BLE queue;
 if the queue is ever full for more than one chunk, chunks are dropped and
 counted into `dropped_bytes` of `AUDIO_END` instead of stalling the mic.
+Each artwork transfer is 18,432 bytes. Android serializes write-with-response
+operations to preserve chunk order; the device avoids per-chunk LVGL refreshes
+and draws only after a valid `MEDIA_ART_END`.
 
 ## 4. Audio chain
 
@@ -185,6 +216,9 @@ at `AUDIO_START`).
 | Audio init fails | Recording page disabled with error text |
 | BLE init fails | All pages work; recording shows "no link", sync pages show "waiting for phone" |
 | No phone data yet | Schedule/todo pages show empty-state hints |
+| Media access not granted | App shows the system access action; Music page remains waiting |
+| Player has no artwork | Metadata/progress still sync; device shows `NO ART` |
+| BLE disconnect | Ephemeral now-playing state clears; schedule/todo remain until the next sync |
 | BLE disconnect while recording | Recording finalizes and stops; error shown |
 | Calendar permission denied | Recording and todo remain available; system-calendar import stays disabled |
 | Battery read fails | Battery indicator hidden (graceful) |
@@ -196,8 +230,8 @@ Pure C, no ESP-IDF/LVGL includes, covered by host tests (`tests/`):
 - `pager_core.*` — paging/in-page state machine (input events → actions).
 - `app_chime.*` — deterministic startup/shutdown PCM synthesis.
 - `adpcm_ima.*` — IMA ADPCM encoder.
-- `sync_proto.*` — framing, RX message apply (schedule/todo store), TX message
-  build, audio-session lifecycle (idle → streaming → ended).
+- `sync_proto.*` — framing, RX message apply (schedule/todo/media store), artwork
+  chunk validation, TX message build, and audio-session lifecycle.
 
 ## 7. Android app integration checklist
 
@@ -216,11 +250,17 @@ Pure C, no ESP-IDF/LVGL includes, covered by host tests (`tests/`):
    playback and deletion. Filename comes from device `unix_time`.
 6. On `TODO_TOGGLE`: mark the item done/undone in the app.
 7. Show `STATUS` battery/recording state.
+8. Guide the user to enable DimOS under Android Notification access. Use
+   `MediaSessionManager` to obtain the current `MediaController`, observe
+   metadata/playback changes, center-crop artwork to 96×96, and encode it as
+   little-endian RGB565. This explicitly supports Spotify and generically
+   supports players that publish a standard media session.
 
 Limitations: the app may retain a multi-day imported calendar range, but the v1
 device protocol keeps only today's first 32 events in RAM and re-pushes them on
 connect. UI text without a glyph in the CJK subset renders as a placeholder
-box; UP/DOWN on the recording page is unused in v1.
+box; UP/DOWN on recording and music pages is unused. If Android kills the
+companion process, BLE and the media bridge resume after the app is reopened.
 
 Related: [agent guide](../development/agent-guide.md),
 [hardware guide](../hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md),

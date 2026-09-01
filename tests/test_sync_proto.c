@@ -3,6 +3,20 @@
 #include <string.h>
 #include "sync_proto.h"
 
+static void test_put_u16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+}
+
+static void test_put_u32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
+
 int main(void)
 {
     uint8_t frame[SYNC_FRAME_MAX];
@@ -165,6 +179,83 @@ int main(void)
     assert(sync_todo_at(&st, 5) == NULL);
     assert(sync_sched_at(&st, 0) == &st.sched[0]);
     assert(sync_sched_at(&st, 99) == NULL);
+
+    // ---- Now Playing ----
+    const char *media_text[] = { "Song", "Artist", "Album", "SPOTIFY" };
+    uint8_t media_info[64] = { 0 };
+    media_info[0] = SYNC_MEDIA_FLAG_PLAYING | SYNC_MEDIA_FLAG_HAS_ART;
+    test_put_u32(media_info + 1, 240000);
+    test_put_u32(media_info + 5, 12345);
+    size_t media_len = 9;
+    for (size_t i = 0; i < 4; i++) {
+        size_t text_len = strlen(media_text[i]);
+        media_info[media_len++] = (uint8_t)text_len;
+        memcpy(media_info + media_len, media_text[i], text_len);
+        media_len += text_len;
+    }
+    n = sync_proto_build(SYNC_RX_MEDIA_INFO, media_info, media_len,
+                         frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_INFO);
+    assert(st.media.active && st.media.playing && st.media.has_art);
+    assert(!st.media.art_ready && st.media.duration_ms == 240000);
+    assert(st.media.position_ms == 12345);
+    assert(strcmp(st.media.title, "Song") == 0);
+    assert(strcmp(st.media.artist, "Artist") == 0);
+    assert(strcmp(st.media.album, "Album") == 0);
+    assert(strcmp(st.media.source, "SPOTIFY") == 0);
+
+    uint8_t art_begin[2];
+    test_put_u16(art_begin, SYNC_MEDIA_ART_BYTES);
+    n = sync_proto_build(SYNC_RX_MEDIA_ART_BEGIN, art_begin, sizeof(art_begin),
+                         frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_ART_BEGIN);
+
+    uint8_t art_payload[SYNC_MAX_PAYLOAD];
+    test_put_u16(art_payload, 1);
+    art_payload[2] = 0xAA;
+    n = sync_proto_build(SYNC_RX_MEDIA_ART_DATA, art_payload, 3,
+                         frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) < 0);
+    n = sync_proto_build(SYNC_RX_MEDIA_ART_END, art_begin, sizeof(art_begin),
+                         frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) < 0);
+    assert(!st.media.art_ready);
+
+    n = sync_proto_build(SYNC_RX_MEDIA_ART_BEGIN, art_begin, sizeof(art_begin),
+                         frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_ART_BEGIN);
+    for (uint16_t offset = 0; offset < SYNC_MEDIA_ART_BYTES;) {
+        size_t chunk = SYNC_MEDIA_ART_BYTES - offset;
+        if (chunk > SYNC_MAX_PAYLOAD - 2) chunk = SYNC_MAX_PAYLOAD - 2;
+        test_put_u16(art_payload, offset);
+        for (size_t i = 0; i < chunk; i++) {
+            art_payload[2 + i] = (uint8_t)(offset + i);
+        }
+        n = sync_proto_build(SYNC_RX_MEDIA_ART_DATA, art_payload, 2 + chunk,
+                             frame, sizeof(frame));
+        assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_ART_DATA);
+        offset = (uint16_t)(offset + chunk);
+    }
+    n = sync_proto_build(SYNC_RX_MEDIA_ART_END, art_begin, sizeof(art_begin),
+                         frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_ART_END);
+    assert(st.media.art_ready);
+    assert(st.media.art_received == SYNC_MEDIA_ART_BYTES);
+    const uint8_t *art_bytes = (const uint8_t *)st.media.art_rgb565;
+    assert(art_bytes[0] == 0x00 && art_bytes[1] == 0x01);
+    assert(art_bytes[SYNC_MEDIA_ART_BYTES - 1] == 0xFF);
+
+    uint8_t media_progress[9] = { 0 };
+    test_put_u32(media_progress + 1, 23000);
+    test_put_u32(media_progress + 5, 240000);
+    n = sync_proto_build(SYNC_RX_MEDIA_PROGRESS, media_progress,
+                         sizeof(media_progress), frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_PROGRESS);
+    assert(!st.media.playing && st.media.position_ms == 23000);
+
+    n = sync_proto_build(SYNC_RX_MEDIA_CLEAR, NULL, 0, frame, sizeof(frame));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_MEDIA_CLEAR);
+    assert(!st.media.active && !st.media.art_ready);
 
     // ---- 异常帧 ----
     uint8_t bad_hdr[4] = { 0x00, 0x01, 1, 1 };

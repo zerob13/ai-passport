@@ -12,6 +12,7 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -31,7 +32,9 @@ import com.zerob13.aipassport.data.AppRepository
 import com.zerob13.aipassport.data.CalendarEventRecord
 import com.zerob13.aipassport.data.RecordingRecord
 import com.zerob13.aipassport.databinding.ActivityMainBinding
+import com.zerob13.aipassport.media.NowPlayingBridge
 import com.zerob13.aipassport.proto.DeviceStatus
+import com.zerob13.aipassport.proto.NowPlaying
 import com.zerob13.aipassport.proto.TodoItem
 import java.time.Instant
 import java.time.ZoneId
@@ -47,6 +50,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private lateinit var binding: ActivityMainBinding
     private lateinit var repo: AppRepository
     private lateinit var ble: BleSyncClient
+    private lateinit var mediaBridge: NowPlayingBridge
     private var mediaPlayer: MediaPlayer? = null
 
     private val scheduleAdapter = ScheduleAdapter()
@@ -86,6 +90,12 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
         repo = AppRepository(this)
         ble = BleSyncClient(this, this)
+        mediaBridge = NowPlayingBridge(
+            this,
+            ::onNowPlaying,
+            ::onMediaProgress,
+            ::onMediaClear,
+        )
 
         binding.scheduleList.layoutManager = LinearLayoutManager(this)
         binding.scheduleList.adapter = scheduleAdapter
@@ -105,8 +115,16 @@ class MainActivity : AppCompatActivity(), SyncListener {
         }
         binding.btnImportSchedule.setOnClickListener { requestCalendarImport() }
         binding.btnAddTodo.setOnClickListener { showAddTodoDialog() }
+        binding.btnMediaAccess.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
 
         refreshLists()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshMediaAccess()
     }
 
     // ---------------- 权限 ----------------
@@ -134,7 +152,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     // ---------------- 连接 ----------------
     private fun startScanAndConnect() {
-        binding.statusText.text = "正在扫描 FoloPassport..."
+        binding.statusText.text = "正在扫描 DimOS..."
         val adapter = getSystemService(BluetoothManager::class.java).adapter
             ?: run { toast("蓝牙不可用"); return }
         if (adapter.isEnabled) {
@@ -150,6 +168,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     }
 
     override fun onDestroy() {
+        mediaBridge.stop()
         mediaPlayer?.release()
         mediaPlayer = null
         ble.disconnect()
@@ -186,6 +205,73 @@ class MainActivity : AppCompatActivity(), SyncListener {
             done,
             todos.size,
         )
+    }
+
+    // ---------------- Now Playing bridge ----------------
+    private fun refreshMediaAccess() {
+        if (!mediaBridge.hasAccess()) {
+            mediaBridge.stop()
+            binding.mediaSource.text = "MEDIASESSION"
+            binding.mediaTitle.text = "需要媒体访问权限"
+            binding.mediaMeta.text = "系统会打开通知使用权；App 只读取当前媒体会话"
+            binding.mediaProgressBar.visibility = View.GONE
+            binding.mediaProgress.visibility = View.GONE
+            binding.btnMediaAccess.visibility = View.VISIBLE
+            ble.clearNowPlaying()
+            return
+        }
+
+        binding.btnMediaAccess.visibility = View.GONE
+        mediaBridge.start()
+    }
+
+    private fun onNowPlaying(item: NowPlaying) {
+        binding.mediaSource.text = item.source.ifBlank { "MEDIA" }
+        binding.mediaTitle.text = item.title
+        binding.mediaMeta.text = if (item.album.isBlank()) {
+            item.artist
+        } else {
+            "${item.artist} · ${item.album}"
+        }
+        binding.mediaProgressBar.visibility = View.VISIBLE
+        binding.mediaProgress.visibility = View.VISIBLE
+        updateMediaProgress(item.positionMs, item.durationMs, item.playing)
+        ble.sendNowPlaying(item)
+    }
+
+    private fun onMediaProgress(positionMs: Long, durationMs: Long, playing: Boolean) {
+        updateMediaProgress(positionMs, durationMs, playing)
+        ble.sendMediaProgress(positionMs, durationMs, playing)
+    }
+
+    private fun updateMediaProgress(positionMs: Long, durationMs: Long, playing: Boolean) {
+        binding.mediaProgressBar.progress = if (durationMs > 0) {
+            (positionMs.coerceIn(0, durationMs) * 1000 / durationMs).toInt()
+        } else {
+            0
+        }
+        binding.mediaProgress.text =
+            "${if (playing) "播放中" else "已暂停"}  " +
+            "${formatMediaTime(positionMs)} / ${formatMediaTime(durationMs)}"
+    }
+
+    private fun onMediaClear() {
+        binding.mediaSource.text = "MEDIASESSION"
+        binding.mediaTitle.text = "等待播放器"
+        binding.mediaMeta.text = "打开 Spotify 或其他播放器并开始播放"
+        binding.mediaProgressBar.visibility = View.GONE
+        binding.mediaProgress.visibility = View.GONE
+        ble.clearNowPlaying()
+    }
+
+    private fun formatMediaTime(milliseconds: Long): String {
+        val seconds = milliseconds.coerceAtLeast(0) / 1000
+        return if (seconds >= 3600) {
+            String.format(Locale.US, "%d:%02d:%02d", seconds / 3600,
+                seconds / 60 % 60, seconds % 60)
+        } else {
+            String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
+        }
     }
 
     // ---------------- Calendar import / Todo ----------------
@@ -250,7 +336,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
             result.onSuccess { events ->
                 refreshLists()
                 pushSnapshotIfConnected()
-                toast("已导入 ${events.size} 项，Passport 已同步今天的日程")
+                toast("已导入 ${events.size} 项，DimOS 已同步今天的日程")
             }.onFailure {
                 toast("系统日历导入失败")
             }
@@ -350,8 +436,8 @@ class MainActivity : AppCompatActivity(), SyncListener {
 
     // ---------------- SyncListener ----------------
     override fun onConnectionChanged(connected: Boolean) {
-        binding.btnConnect.text = if (connected) "断开 PASSPORT" else "连接 PASSPORT"
-        binding.statusText.text = if (connected) "已连接 FoloPassport" else "未连接"
+        binding.btnConnect.text = if (connected) "断开 DimOS" else "连接 DimOS"
+        binding.statusText.text = if (connected) "已连接 DimOS" else "未连接"
         binding.llMain.alpha = 1f
         if (!connected) {
             binding.recordingLive.visibility = View.GONE
@@ -360,13 +446,14 @@ class MainActivity : AppCompatActivity(), SyncListener {
         }
         if (connected) {
             ble.pushSnapshot(repo.loadTodaySchedule(), repo.loadTodos())
+            mediaBridge.currentSnapshot()?.let(ble::sendNowPlaying) ?: ble.clearNowPlaying()
         }
     }
 
     override fun onStatus(status: DeviceStatus) {
         val bat = if (status.soc >= 0) "${status.soc}%" else "--"
         binding.statusText.text =
-            "已连接 FoloPassport · 电量 $bat" +
+            "已连接 DimOS · 电量 $bat" +
             (if (status.recording) " · 录音中" else "")
     }
 

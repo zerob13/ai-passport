@@ -1,5 +1,5 @@
-// main/main.c —— AI Passport 同步应用入口。
-// 初始化外设后直接进入"翻页模式"主界面(录音/当天日程/任务),不再有演示菜单。
+// main/main.c —— DimOS 同步应用入口。
+// 初始化外设后直接进入"翻页模式"主界面(录音/日程/任务/音乐),不再有演示菜单。
 // 交互模型与 BLE 协议见 docs/software-design/passport-sync-app.md。
 #include "app_pager.h"
 #include "app_chime.h"
@@ -18,7 +18,7 @@ static const char *TAG = "main";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "AI Passport 同步应用启动");
+    ESP_LOGI(TAG, "DimOS sync application starting");
     esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
     if (wakeup != ESP_SLEEP_WAKEUP_UNDEFINED) {
         ESP_LOGI(TAG, "休眠唤醒原因: %d", wakeup);

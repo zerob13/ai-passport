@@ -2,14 +2,15 @@
   <a href="passport-sync-app.md">English</a> · <strong>简体中文</strong>
 </p>
 
-# AI Passport 同步应用 —— 设计文档
+# DimOS 同步应用 —— AI Passport 设计文档
 
 适用范围:`main/app_*.c`、`main/sync_*.c`、`main/adpcm_ima.*`、`main/pager_core.*`、
 `PASSPORT-SYNC` BLE 服务,以及基于 `ui_pixel` 主题构建的 LVGL 界面。
 
 目标:为 AI Passport 开发板(ESP32-C3、240x320 彩屏、三键、ES8311 麦克风/喇叭)
-开发配套设备端界面,通过 BLE 与手机 App 同步。手机 App 是同步中枢:它从 Android
-系统日历导入可见实例、维护 Todo、归档录音,并向设备提供当前时间。
+开发名为 DimOS 的配套设备端界面,通过 BLE 与手机 App 同步。手机 App 是同步中枢:
+它从 Android 系统日历导入可见实例、维护 Todo、归档录音、读取 Android 当前媒体
+会话,并向设备提供当前时间和正在播放的音乐。
 
 ## 1. 交互模型
 
@@ -21,12 +22,14 @@
 
 | 按键 | 动作 |
 | --- | --- |
-| 上/下 单击 | 翻页(录音 → 日程 → 任务,循环) |
+| 上/下 单击 | 翻页(录音 → 日程 → 任务 → 音乐,循环) |
 | 确定 单击 | 进入当前页(切换到页面模式) |
 | 确定 双击 | 无操作 |
 | 确定 长按 | 播放关机提示音、熄屏并进入深睡 |
 
-翻页界面每次显示一张页面卡片(标题、提示、页码指示 `N/3`),天空区域显示电量。
+翻页界面显示四张紧凑页面卡片,当前卡片反色,页码指示为 `N/4`,顶部显示电量。
+所有用户可见的固件品牌文字使用 `DimOS`;为了兼容已发布 App 和刷机工具,BLE 名称
+`FoloPassport`、服务 UUID 和协议标识保持不变。
 
 应用正常启动后会播放一段原创的短上行系统提示音。翻页模式的软件关机会先播放
 原创下行提示音，再进入深睡。现有 BSP 文档没有向固件暴露独立硬件电源键，因此
@@ -69,6 +72,14 @@
      (手机侧“后写者胜”)。
    - 显示勾选框与 `X/Y`(完成数 / 总数)。
 
+4. **音乐**(`app_music.c`)
+   - 手机通过 Android `MediaSession` 读取当前播放器;Spotify 可用,遵循系统媒体会话
+     的其他播放器也通用,无需 Spotify 登录、SDK 或开发者密钥。
+   - 显示播放器、歌曲、歌手、专辑、96×96 封面、播放/暂停状态和实时进度。
+   - 手机上切歌后重新传元数据和封面;播放期间每秒校正一次进度,设备在两次校正间
+     用单调时钟平滑推进。
+   - 本页无播放控制;上/下/确定单击无操作,确定双击或长按返回翻页界面。
+
 ## 2. 时间
 
 设备没有 RTC。手机在 `HELLO` 时下发 POSIX 时间与时区偏移(重连可再发)。
@@ -110,10 +121,17 @@ bytes 3..   负载(L 字节)
 | `0x03` | `SCHEDULE_ADD` | `id u16`、`start_min u16`(当日零点起分钟数)、`end_min u16`、`title_len u8`(≤ 60)、`title utf8` |
 | `0x05` | `TODO_CLEAR` | — |
 | `0x06` | `TODO_ADD` | `id u16`、`done u8`、`title_len u8`(≤ 60)、`title utf8` |
+| `0x08` | `MEDIA_CLEAR` | — |
+| `0x09` | `MEDIA_INFO` | `flags u8`(bit0 = 播放中,bit1 = 有封面)、`duration_ms u32`、`position_ms u32`,随后依次为歌曲/歌手/专辑/播放器四个 `len u8 + utf8`;前三项 ≤ 60 B,播放器 ≤ 24 B |
+| `0x0A` | `MEDIA_ART_BEGIN` | `total_bytes u16`(固定 18432) |
+| `0x0B` | `MEDIA_ART_DATA` | `offset u16`、按顺序发送的 RGB565 小端字节(≤ 238 B) |
+| `0x0C` | `MEDIA_ART_END` | `total_bytes u16`(固定 18432) |
+| `0x0D` | `MEDIA_PROGRESS` | `flags u8`(bit0 = 播放中)、`position_ms u32`、`duration_ms u32` |
 
 `SCHEDULE_ADD` / `TODO_ADD` 对相同 `id` 为插入或替换。标题为 UTF-8;屏幕用内置
 中文字库渲染,缺字回退到西文字体。存储只保留“当天日程”与完整 Todo 列表,
-存放在 RAM(手机每次连接都重新推送,不写 flash)。
+存放在 RAM(手机每次连接都重新推送,不写 flash)。封面固定为 96×96 RGB565,
+只有顺序和总长度均正确时才对 UI 可见;不完整封面不会显示。
 
 ### TX:设备 → 手机(通知)
 
@@ -129,21 +147,27 @@ bytes 3..   负载(L 字节)
 
 - **连接**:手机连接 → 请求 MTU → 订阅 TX 通知 → 发 `HELLO` →
   `SCHEDULE_CLEAR` + `SCHEDULE_ADD`×N → `TODO_CLEAR` + `TODO_ADD`×N。
-  设备建链后回复 `STATUS`。
+  若存在媒体会话,随后发送 `MEDIA_INFO` 和封面;否则发送 `MEDIA_CLEAR`。设备建链后
+  回复 `STATUS`。
 - **录音**:确定 开始 → `AUDIO_START` → 实时 `AUDIO_DATA` 流(约每 60 ms 一条)
   → 确定 停止或退出页面 → `AUDIO_END`。手机实时解码每条 `AUDIO_DATA`，
-  收到 `AUDIO_END` 后在公共 `音乐/AI Passport` 目录定稿为标准 16 kHz、
+  收到 `AUDIO_END` 后在公共 `音乐/DimOS` 目录定稿为标准 16 kHz、
   单声道、16-bit PCM WAV 文件（如 `REC-YYYYMMDD-HHMMSS.wav`）。中途断链
   不会收到 `AUDIO_END`，此时丢弃未完成文件。
 - **Todo 勾选**:设备发 `TODO_TOGGLE`,手机应用该状态(后写者胜)。
   手机端自己勾选时,发 `TODO_ADD` 携带新 `done` 状态即可。
 - **状态**:建链、电池或录音状态变化时发送 `STATUS`,手机可用于自己的界面。
+- **正在播放**:切歌 → `MEDIA_INFO` → `MEDIA_ART_BEGIN` →
+  `MEDIA_ART_DATA`×78 → `MEDIA_ART_END`;播放期间每秒发送 `MEDIA_PROGRESS`。
+  快速切歌会从写队列移除旧媒体分片;进度帧只保留最新一条。
 
 ### 流控与可靠性
 
 ADPCM 流约 8 KB/s(≈ 每秒 17 条 240 B 通知),远低于 MTU 247+ 链路的承受能力,
 无需信用(credit)机制。`seq` 让手机能发现丢包。录音任务通过 BLE 队列自限速;
 若队列持续满,则丢块并把字节数计入 `AUDIO_END.dropped_bytes`,而不是卡住麦克风。
+封面每次换歌传 18,432 字节,Android 使用带响应的串行写队列保证分片顺序;设备在
+接收中不逐分片刷新 LVGL,只在 `MEDIA_ART_END` 校验通过后显示。
 
 ## 4. 音频链路
 
@@ -164,6 +188,9 @@ IMA ADPCM 每采样 4 bit(codec id 1):16 kHz → 8 KB/s。编码器按块处理,
 | 音频初始化失败 | 录音页禁用并显示错误 |
 | BLE 初始化失败 | 所有页面可用;录音页显示“无连接”,同步页显示“等待手机” |
 | 尚无手机数据 | 日程/Todo 页显示空态提示 |
+| 未授予媒体访问权限 | App 显示授权入口;设备音乐页保持等待状态 |
+| 播放器无封面 | 仍同步歌曲信息和进度;设备显示 `NO ART` |
+| BLE 断开 | 清除易过期的正在播放状态;日程/Todo 数据保留到下次同步 |
 | 录音中 BLE 断链 | 先结束并停止录音,再提示错误 |
 | 拒绝日历权限 | 录音和 Todo 仍可使用,系统日历导入不可用 |
 | 电量读取失败 | 电量指示隐藏(优雅降级) |
@@ -175,8 +202,8 @@ IMA ADPCM 每采样 4 bit(codec id 1):16 kHz → 8 KB/s。编码器按块处理,
 - `pager_core.*` —— 翻页/页面状态机(输入事件 → 动作)。
 - `app_chime.*` —— 确定性的开机/关机 PCM 音效合成。
 - `adpcm_ima.*` —— IMA ADPCM 编码器。
-- `sync_proto.*` —— 帧编解码、RX 消息应用(日程/Todo 存储)、TX 消息构造、
-  录音会话生命周期(idle → 流式 → 结束)。
+- `sync_proto.*` —— 帧编解码、RX 消息应用(日程/Todo/媒体存储)、封面分片校验、
+  TX 消息构造和录音会话生命周期(idle → 流式 → 结束)。
 
 ## 7. Android App 对接清单
 
@@ -190,9 +217,13 @@ IMA ADPCM 每采样 4 bit(codec id 1):16 kHz → 8 KB/s。编码器按块处理,
    与删除,文件名用设备 `unix_time` 生成。
 6. 收到 `TODO_TOGGLE`:在 App 中标记完成/未完成。
 7. 用 `STATUS` 展示电量与录音状态。
+8. 引导用户在系统“通知使用权”中启用 DimOS。用 `MediaSessionManager` 获取当前
+   `MediaController`,监听元数据和播放状态;将封面居中裁切到 96×96 并转换为
+   RGB565 小端格式。该实现首先支持 Spotify,同时适用于公开标准媒体会话的播放器。
 
 限制:App 可保存多日导入范围,但 v1 设备协议只在 RAM 中保留当天前 32 条日程,
-连接时重新下发;字库中没有的字形显示为占位框;录音页的上/下键 v1 未使用。
+连接时重新下发;字库中没有的字形显示为占位框;录音页和音乐页的上/下键未使用;
+Android 伴侣进程被系统终止时,BLE 和媒体桥都需要重新打开 App 后恢复。
 
 相关:[开发指南](../development/agent-guide.zh_CN.md)、
 [硬件指南](../hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.zh_CN.md)、

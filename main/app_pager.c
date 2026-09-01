@@ -2,6 +2,7 @@
 #include "app_pager.h"
 
 #include "app_chime.h"
+#include "app_music.h"
 #include "app_record.h"
 #include "app_schedule.h"
 #include "app_todo.h"
@@ -35,6 +36,11 @@ const app_page_t APP_PAGES[PAGER_PAGE_COUNT] = {
         .name = "TODO", .sub = "TASK LIST", .hint = "SYNCED WITH PHONE",
         .enter = app_todo_enter, .exit = app_todo_exit,
         .key = app_todo_key, .refresh = app_todo_refresh,
+    },
+    {
+        .name = "MUSIC", .sub = "NOW PLAYING", .hint = "LIVE FROM PHONE",
+        .enter = app_music_enter, .exit = app_music_exit,
+        .key = app_music_key, .refresh = app_music_refresh,
     },
 };
 
@@ -214,7 +220,7 @@ static void card_refresh(void)
 
 static void paging_build(void)
 {
-    s_scr = ui_pixel_screen_create("PASSPORT");
+    s_scr = ui_pixel_screen_create("DimOS");
     s_paging_bat = app_battery_create(s_scr);
 
     s_mode_label = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_SUBTLE);
@@ -223,19 +229,19 @@ static void paging_build(void)
     lv_obj_set_style_text_align(s_mode_label, LV_TEXT_ALIGN_RIGHT, 0);
 
     for (int i = 0; i < PAGER_PAGE_COUNT; i++) {
-        s_rows[i] = ui_pixel_panel_create(s_scr, 10, 64 + i * 58, 220, 50,
+        s_rows[i] = ui_pixel_panel_create(s_scr, 10, 60 + i * 45, 220, 41,
                                           UI_SURFACE);
         lv_obj_set_style_pad_all(s_rows[i], 0, 0);
         s_row_titles[i] = ui_pixel_label(s_rows[i], APP_PAGES[i].name,
                                          &lv_font_montserrat_20, UI_INK);
-        lv_obj_set_pos(s_row_titles[i], 10, 2);
+        lv_obj_set_pos(s_row_titles[i], 10, 0);
         s_row_subs[i] = ui_pixel_label(s_rows[i], APP_PAGES[i].sub,
                                        &lv_font_montserrat_14, UI_SUBTLE);
-        lv_obj_set_pos(s_row_subs[i], 10, 26);
+        lv_obj_set_pos(s_row_subs[i], 10, 21);
         lv_obj_t *index = ui_pixel_label(s_rows[i], "", &lv_font_montserrat_14,
                                          UI_SUBTLE);
         lv_label_set_text_fmt(index, "0%d", i + 1);
-        lv_obj_set_pos(index, 188, 13);
+        lv_obj_set_pos(index, 188, 9);
     }
 
     s_link_label = ui_pixel_label(s_scr, "", &lv_font_montserrat_14, UI_SUBTLE);
@@ -261,10 +267,12 @@ static void on_sync_evt(sync_ble_evt_t ev)
             lv_label_set_text(s_link_label,
                               sync_ble_is_connected() ? "PHONE ONLINE" : "PHONE OFFLINE");
         }
-    } else if (APP_PAGES[s_pager.page].refresh) {
+    } else if (APP_PAGES[s_pager.page].refresh &&
+               (ev == SYNC_BLE_CONNECTED || ev == SYNC_BLE_DISCONNECTED ||
+                (ev == SYNC_BLE_MEDIA && s_pager.page == PAGER_PAGE_MUSIC) ||
+                (ev == SYNC_BLE_DATA && s_pager.page != PAGER_PAGE_MUSIC))) {
         APP_PAGES[s_pager.page].refresh();
     }
-    (void)ev;
     bsp_lvgl_unlock();
 }
 

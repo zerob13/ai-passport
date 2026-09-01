@@ -6,7 +6,12 @@
 
 ## Unreleased
 
-- Matched the Android companion app to the Passport firmware with paper-white
+- Added a generic Android MediaSession bridge that syncs Spotify and compatible
+  players' track, artist, album, source, play state, progress, and 96×96 cover
+  art over BLE; added a matching firmware Music page with smooth progress.
+- Renamed user-visible firmware and companion branding to DimOS while retaining
+  the `FoloPassport` BLE name, UUIDs, and protocol identifiers for compatibility.
+- Matched the Android companion app to the DimOS firmware with paper-white
   surfaces, monochrome hierarchy, fine outlined panels, compact section
   metadata, restrained red status accents, and a matching launcher icon.
 - Fixed noisy system-chime playback by opening the ES8311 DAC path as stereo,
@@ -21,7 +26,7 @@
   users choose the number of past and future days, the app keeps that imported
   range, and the Passport receives today's events on sync.
 - Streams recordings into an animated live receiver, finalizes them as playable
-  PCM WAV files in the public `Music/AI Passport` directory, lists them in the
+  PCM WAV files in the public `Music/DimOS` directory, lists them in the
   app with playback and deletion, and uses rotating cassette reels on firmware.
 - Fixed compressed Chinese/Latin title rendering on the Passport, preserved
   UTF-8 boundaries when truncating titles, and added native schedule time
@@ -35,13 +40,13 @@
 - Redesigned the firmware launcher, recording, days, and todo screens around
   the DayRing visual language: paper-white surfaces, monochrome typography,
   fine borders, compact status metadata, cassette reels, date badges, task
-  rows, and a persistent three-section footer adapted to the 240×320 display.
+  rows, and a persistent four-section footer adapted to the 240×320 display.
 - Fixed compact-screen labels that wrapped, clipped, or rendered unsupported
   separator glyphs, and centered the empty states for days and todo.
 - Fixed firmware builds and prevented 60-byte schedule/todo titles from
   writing their terminator past the allocated buffer.
-- Added the AI Passport sync app (replaces the demo menu on boot): a paging
-  UI (Recording / Today's schedule / Todo) driven by UP/DOWN to flip pages, OK
+- Added the DimOS sync app (replaces the demo menu on boot): a paging
+  UI (Recording / Today's schedule / Todo / Music) driven by UP/DOWN to flip pages, OK
   to enter a page, UP/DOWN for in-page navigation, and OK double-press (or
   long-press) to return to paging. Includes a Chinese font (Noto Sans CJK SC
   subset) for schedule/todo titles.
@@ -56,7 +61,7 @@
   file and finalizes it on `AUDIO_END`.
 - Defined the `ai-passport-sync` BLE service (GATT TX notify / RX write) with a
   documented frame protocol for time sync, today's schedule, todo, todo
-  toggles, recording upload, and status — see
+  toggles, recording upload, now playing, artwork, progress, and status — see
   `docs/software-design/passport-sync-app.md` (bilingual). The Android
   companion app implements this protocol to sync with the device.
 - Added host-testable cores with host tests: `pager_core` (paging state

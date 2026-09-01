@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AI Passport</string>
+    <string name="app_name">DimOS Companion</string>
+    <string name="media_access_name">DimOS 媒体同步</string>
 </resources>

@@ -17,9 +17,13 @@ int main(void)
     assert(pager_handle(&p, PAGER_EV_DOWN) == PAGER_ACT_FLIP);
     assert(p.page == PAGER_PAGE_TODO);
     assert(pager_handle(&p, PAGER_EV_DOWN) == PAGER_ACT_FLIP);
+    assert(p.page == PAGER_PAGE_MUSIC);
+    assert(pager_handle(&p, PAGER_EV_DOWN) == PAGER_ACT_FLIP);
     assert(p.page == PAGER_PAGE_RECORD);            // 回绕
     assert(pager_handle(&p, PAGER_EV_UP) == PAGER_ACT_FLIP);
-    assert(p.page == PAGER_PAGE_TODO);              // 回绕
+    assert(p.page == PAGER_PAGE_MUSIC);             // 回绕
+    assert(pager_handle(&p, PAGER_EV_UP) == PAGER_ACT_FLIP);
+    assert(p.page == PAGER_PAGE_TODO);
     assert(pager_handle(&p, PAGER_EV_UP) == PAGER_ACT_FLIP);
     assert(p.page == PAGER_PAGE_SCHEDULE);
     assert(pager_handle(&p, PAGER_EV_UP) == PAGER_ACT_FLIP);

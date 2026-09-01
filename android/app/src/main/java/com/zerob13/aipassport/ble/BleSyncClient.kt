@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.Looper
 import com.zerob13.aipassport.audio.WavRecording
 import com.zerob13.aipassport.proto.FrameCodec
+import com.zerob13.aipassport.proto.NowPlaying
 import com.zerob13.aipassport.proto.RxMessages
 import com.zerob13.aipassport.proto.SyncProtocol
 import com.zerob13.aipassport.proto.TxMessages
@@ -60,7 +61,7 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     private var scanCallback: ScanCallback? = null
     private val scanTimeout = Runnable {
         stopScan()
-        listener.onError("未发现 FoloPassport，请确认设备已开机并靠近手机")
+        listener.onError("未发现 DimOS，请确认设备已开机并靠近手机")
     }
 
     private var recording: WavRecording? = null
@@ -129,7 +130,7 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
             BluetoothDevice.PHY_LE_1M_MASK,
             handler,
         )
-        if (gatt == null) listener.onError("无法连接 FoloPassport")
+        if (gatt == null) listener.onError("无法连接 DimOS")
     }
 
     fun disconnect() {
@@ -291,6 +292,34 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     fun sendTodo(item: com.zerob13.aipassport.proto.TodoItem) {
         RxMessages.todoAdd(item)?.let(::enqueue)
     }
+
+    /** Replace queued media state so a rapid track change cannot finish stale artwork. */
+    fun sendNowPlaying(item: NowPlaying) {
+        if (!ready) return
+        pendingWriteQueue.removeAll(::isMediaFrame)
+        RxMessages.mediaInfo(item)?.let(::enqueue)
+        item.artworkRgb565?.let { art ->
+            RxMessages.mediaArtworkFrames(art).forEach(::enqueue)
+        }
+    }
+
+    fun clearNowPlaying() {
+        if (!ready) return
+        pendingWriteQueue.removeAll(::isMediaFrame)
+        RxMessages.mediaClear()?.let(::enqueue)
+    }
+
+    fun sendMediaProgress(positionMs: Long, durationMs: Long, playing: Boolean) {
+        if (!ready) return
+        pendingWriteQueue.removeAll { frame -> frameType(frame) == SyncProtocol.RX_MEDIA_PROGRESS }
+        RxMessages.mediaProgress(positionMs, durationMs, playing)?.let(::enqueue)
+    }
+
+    private fun isMediaFrame(frame: ByteArray): Boolean =
+        frameType(frame) in SyncProtocol.RX_MEDIA_CLEAR..SyncProtocol.RX_MEDIA_PROGRESS
+
+    private fun frameType(frame: ByteArray): Int =
+        if (frame.size > 1) frame[1].toInt() and 0xFF else -1
 
     // ---------------- TX 帧处理 ----------------
     private fun handleTxFrame(frame: FrameCodec.Frame) {

@@ -23,10 +23,11 @@ void sync_store_init(sync_store_t *st)
     memset(st, 0, sizeof(*st));
 }
 
-// Copy a title without splitting a UTF-8 code point at the protocol limit.
-static void copy_title(char *dst, uint8_t *len, const uint8_t *src, uint8_t n)
+// Copy text without splitting a UTF-8 code point at the protocol limit.
+static void copy_text(char *dst, uint8_t *len, size_t max,
+                      const uint8_t *src, uint8_t n)
 {
-    uint8_t m = n < SYNC_MAX_TITLE ? n : SYNC_MAX_TITLE;
+    uint8_t m = n < max ? n : (uint8_t)max;
 
     if (m < n) {
         while (m > 0 && (src[m] & 0xC0u) == 0x80u) m--;
@@ -44,7 +45,8 @@ static void sched_upsert(sync_store_t *st, uint16_t id, uint16_t start_min,
         if (st->sched[i].id == id) {
             st->sched[i].start_min = start_min;
             st->sched[i].end_min = end_min;
-            copy_title(st->sched[i].title, &st->sched[i].title_len, title, title_len);
+            copy_text(st->sched[i].title, &st->sched[i].title_len,
+                      SYNC_MAX_TITLE, title, title_len);
             return;
         }
     }
@@ -57,7 +59,8 @@ static void sched_upsert(sync_store_t *st, uint16_t id, uint16_t start_min,
     st->sched[i].id = id;
     st->sched[i].start_min = start_min;
     st->sched[i].end_min = end_min;
-    copy_title(st->sched[i].title, &st->sched[i].title_len, title, title_len);
+    copy_text(st->sched[i].title, &st->sched[i].title_len,
+              SYNC_MAX_TITLE, title, title_len);
     st->sched_count++;
 }
 
@@ -68,15 +71,17 @@ static void todo_upsert(sync_store_t *st, uint16_t id, uint8_t done,
     for (uint16_t i = 0; i < st->todo_count; i++) {
         if (st->todos[i].id == id) {
             st->todos[i].done = done;
-            copy_title(st->todos[i].title, &st->todos[i].title_len, title, title_len);
+            copy_text(st->todos[i].title, &st->todos[i].title_len,
+                      SYNC_MAX_TITLE, title, title_len);
             return;
         }
     }
     if (st->todo_count >= SYNC_MAX_TODO) return;
     st->todos[st->todo_count].id = id;
     st->todos[st->todo_count].done = done;
-    copy_title(st->todos[st->todo_count].title, &st->todos[st->todo_count].title_len,
-               title, title_len);
+    copy_text(st->todos[st->todo_count].title,
+              &st->todos[st->todo_count].title_len, SYNC_MAX_TITLE,
+              title, title_len);
     st->todo_count++;
 }
 
@@ -96,6 +101,88 @@ static int rx_todo_add(sync_store_t *st, const uint8_t *p, size_t n)
     if (n != 4u + tlen) return -1;
     todo_upsert(st, get_u16(p), p[2], p + 4, tlen);
     return SYNC_RX_TODO_ADD;
+}
+
+static int rx_media_info(sync_store_t *st, const uint8_t *p, size_t n)
+{
+    if (n < 13) return -1; // flags + duration + position + four string lengths
+
+    const uint8_t *text[4];
+    uint8_t len[4];
+    size_t off = 9;
+    for (int i = 0; i < 4; i++) {
+        if (off >= n) return -1;
+        len[i] = p[off++];
+        if (n - off < len[i]) return -1;
+        text[i] = p + off;
+        off += len[i];
+    }
+    if (off != n) return -1;
+
+    sync_media_t *media = &st->media;
+    media->active = true;
+    media->playing = (p[0] & SYNC_MEDIA_FLAG_PLAYING) != 0;
+    media->has_art = (p[0] & SYNC_MEDIA_FLAG_HAS_ART) != 0;
+    media->art_ready = false;
+    media->duration_ms = get_u32(p + 1);
+    media->position_ms = get_u32(p + 5);
+    media->art_expected = 0;
+    media->art_received = 0;
+    copy_text(media->title, &media->title_len, SYNC_MAX_TITLE, text[0], len[0]);
+    copy_text(media->artist, &media->artist_len, SYNC_MAX_TITLE, text[1], len[1]);
+    copy_text(media->album, &media->album_len, SYNC_MAX_TITLE, text[2], len[2]);
+    copy_text(media->source, &media->source_len, SYNC_MAX_MEDIA_SOURCE,
+              text[3], len[3]);
+    return SYNC_RX_MEDIA_INFO;
+}
+
+static int rx_media_art_begin(sync_store_t *st, const uint8_t *p, size_t n)
+{
+    if (n != 2 || !st->media.active || !st->media.has_art) return -1;
+    uint16_t total = get_u16(p);
+    if (total != SYNC_MEDIA_ART_BYTES) return -1;
+    st->media.art_ready = false;
+    st->media.art_expected = total;
+    st->media.art_received = 0;
+    return SYNC_RX_MEDIA_ART_BEGIN;
+}
+
+static int rx_media_art_data(sync_store_t *st, const uint8_t *p, size_t n)
+{
+    if (n < 3 || st->media.art_expected != SYNC_MEDIA_ART_BYTES) return -1;
+    uint16_t offset = get_u16(p);
+    size_t data_len = n - 2;
+    if (offset != st->media.art_received ||
+        (size_t)offset + data_len > st->media.art_expected) {
+        st->media.art_expected = 0;
+        st->media.art_received = 0;
+        return -1;
+    }
+    memcpy((uint8_t *)st->media.art_rgb565 + offset, p + 2, data_len);
+    st->media.art_received = (uint16_t)(offset + data_len);
+    return SYNC_RX_MEDIA_ART_DATA;
+}
+
+static int rx_media_art_end(sync_store_t *st, const uint8_t *p, size_t n)
+{
+    if (n != 2) return -1;
+    uint16_t total = get_u16(p);
+    if (total != SYNC_MEDIA_ART_BYTES || total != st->media.art_expected ||
+        total != st->media.art_received) {
+        st->media.art_ready = false;
+        return -1;
+    }
+    st->media.art_ready = true;
+    return SYNC_RX_MEDIA_ART_END;
+}
+
+static int rx_media_progress(sync_store_t *st, const uint8_t *p, size_t n)
+{
+    if (n != 9 || !st->media.active) return -1;
+    st->media.playing = (p[0] & SYNC_MEDIA_FLAG_PLAYING) != 0;
+    st->media.position_ms = get_u32(p + 1);
+    st->media.duration_ms = get_u32(p + 5);
+    return SYNC_RX_MEDIA_PROGRESS;
 }
 
 int sync_proto_rx(sync_store_t *st, const uint8_t *frame, size_t len)
@@ -123,6 +210,20 @@ int sync_proto_rx(sync_store_t *st, const uint8_t *frame, size_t len)
         return SYNC_RX_TODO_CLEAR;
     case SYNC_RX_TODO_ADD:
         return rx_todo_add(st, p, plen);
+    case SYNC_RX_MEDIA_CLEAR:
+        if (plen != 0) return -1;
+        memset(&st->media, 0, sizeof(st->media));
+        return SYNC_RX_MEDIA_CLEAR;
+    case SYNC_RX_MEDIA_INFO:
+        return rx_media_info(st, p, plen);
+    case SYNC_RX_MEDIA_ART_BEGIN:
+        return rx_media_art_begin(st, p, plen);
+    case SYNC_RX_MEDIA_ART_DATA:
+        return rx_media_art_data(st, p, plen);
+    case SYNC_RX_MEDIA_ART_END:
+        return rx_media_art_end(st, p, plen);
+    case SYNC_RX_MEDIA_PROGRESS:
+        return rx_media_progress(st, p, plen);
     default:
         return 0;                               // 未知类型:忽略
     }

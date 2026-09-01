@@ -11,6 +11,7 @@ idf_component_register(
          "app_record.c"
          "app_schedule.c"
          "app_todo.c"
+         "app_music.c"
          "ui_font_cjk_16.c"
     INCLUDE_DIRS "."
     REQUIRES bsp bt nvs_flash esp_timer
