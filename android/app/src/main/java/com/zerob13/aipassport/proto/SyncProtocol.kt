@@ -13,6 +13,15 @@ object SyncProtocol {
     const val DEVICE_NAME = "FoloPassport"
     const val PREFERRED_MTU = 512
 
+    fun matchesAdvertisement(
+        advertisedName: String?,
+        cachedName: String?,
+        advertisedServices: Collection<UUID>,
+    ): Boolean =
+        advertisedName == DEVICE_NAME ||
+            cachedName == DEVICE_NAME ||
+            SERVICE_UUID in advertisedServices
+
     const val PROTO_VER = 1
     const val MAX_TITLE = 60
     const val MAX_PAYLOAD = 240

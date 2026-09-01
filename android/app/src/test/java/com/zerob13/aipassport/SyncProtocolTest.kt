@@ -10,11 +10,33 @@ import com.zerob13.aipassport.proto.TodoItem
 import com.zerob13.aipassport.proto.TxMessages
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SyncProtocolTest {
+
+    @Test
+    fun passportAdvertisementMatchesNameOrService() {
+        assertTrue(SyncProtocol.matchesAdvertisement("FoloPassport", null, emptyList()))
+        assertTrue(SyncProtocol.matchesAdvertisement(null, "FoloPassport", emptyList()))
+        assertTrue(
+            SyncProtocol.matchesAdvertisement(
+                null,
+                null,
+                listOf(SyncProtocol.SERVICE_UUID),
+            )
+        )
+        assertFalse(
+            SyncProtocol.matchesAdvertisement(
+                "OtherDevice",
+                null,
+                listOf(java.util.UUID.randomUUID()),
+            )
+        )
+    }
 
     @Test
     fun frameRoundTrip() {

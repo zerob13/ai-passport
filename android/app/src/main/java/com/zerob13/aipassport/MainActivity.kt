@@ -37,9 +37,13 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private val todoAdapter = TodoAdapter()
     private val recordingAdapter = RecordingAdapter()
 
-    private val scanLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            if (permissionsGranted()) startScanAndConnect()
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            if (permissionsGranted()) {
+                startScanAndConnect()
+            } else {
+                toast("需要蓝牙权限才能连接设备")
+            }
         }
 
     private val enableBtLauncher =
@@ -66,7 +70,9 @@ class MainActivity : AppCompatActivity(), SyncListener {
         binding.recordingList.adapter = recordingAdapter
 
         binding.btnConnect.setOnClickListener {
-            if (!permissionsGranted()) {
+            if (ble.isConnected) {
+                ble.disconnect()
+            } else if (!permissionsGranted()) {
                 requestPermissions()
             } else {
                 startScanAndConnect()
@@ -98,19 +104,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     }
 
     private fun requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requestPermissions(requiredPermissions(), 1)
-        } else {
-            scanLauncher.launch(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray,
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (permissionsGranted()) startScanAndConnect()
-        else toast("需要蓝牙权限才能连接设备")
+        permissionLauncher.launch(requiredPermissions())
     }
 
     // ---------------- 连接 ----------------
@@ -128,6 +122,11 @@ class MainActivity : AppCompatActivity(), SyncListener {
     private fun onDeviceFound(device: BluetoothDevice) {
         binding.statusText.text = "连接 ${device.address}..."
         ble.connect(device)
+    }
+
+    override fun onDestroy() {
+        ble.disconnect()
+        super.onDestroy()
     }
 
     // ---------------- 数据刷新 ----------------

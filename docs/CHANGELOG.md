@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Fixed BLE discovery and connection: corrected firmware UUID byte order,
+  split the oversized legacy advertising payload across advertising and scan
+  response packets, and made Android match by name or service UUID, request
+  runtime permissions, time out scans, and serialize GATT setup.
 - Redesigned the firmware launcher, recording, days, and todo screens around
   the DayRing visual language: paper-white surfaces, monochrome typography,
   fine borders, compact status metadata, cassette reels, date badges, task

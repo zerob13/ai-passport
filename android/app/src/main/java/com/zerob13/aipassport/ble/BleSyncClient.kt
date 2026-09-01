@@ -15,6 +15,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.bluetooth.le.BluetoothLeScanner
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -73,75 +74,141 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     private var gatt: BluetoothGatt? = null
     private var txChar: BluetoothGattCharacteristic? = null
     private var rxChar: BluetoothGattCharacteristic? = null
+    private var ready = false
     private var pendingWriteQueue = ArrayDeque<ByteArray>()
     private var writeInFlight = false
+
+    private var activeScanner: BluetoothLeScanner? = null
+    private var scanCallback: ScanCallback? = null
+    private val scanTimeout = Runnable {
+        stopScan()
+        listener.onError("未发现 FoloPassport，请确认设备已开机并靠近手机")
+    }
 
     private var recording: RecordingSession? = null
     private var recordingFileName: String? = null
 
-    val isConnected: Boolean get() = gatt != null
+    val isConnected: Boolean get() = ready
 
     // ---------------- 扫描 ----------------
     fun startScan(onFound: (BluetoothDevice) -> Unit) {
-        val adapter = bluetoothAdapter ?: return
-        val scanner = adapter.bluetoothLeScanner ?: return
+        stopScan()
+        val adapter = bluetoothAdapter ?: run {
+            listener.onError("蓝牙不可用")
+            return
+        }
+        val scanner = adapter.bluetoothLeScanner ?: run {
+            listener.onError("无法启动蓝牙扫描")
+            return
+        }
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val name = result.device.name
-                if (name == SyncProtocol.DEVICE_NAME) {
-                    scanner.stopScan(this)
+                val record = result.scanRecord
+                val services = record?.serviceUuids?.map { it.uuid }.orEmpty()
+                if (SyncProtocol.matchesAdvertisement(
+                        record?.deviceName,
+                        result.device.name,
+                        services,
+                    )
+                ) {
+                    stopScan()
                     onFound(result.device)
                 }
             }
+
+            override fun onScanFailed(errorCode: Int) {
+                stopScan()
+                listener.onError("蓝牙扫描失败 ($errorCode)")
+            }
         }
+        activeScanner = scanner
+        scanCallback = callback
         scanner.startScan(null, settings, callback)
+        handler.postDelayed(scanTimeout, SCAN_TIMEOUT_MS)
+    }
+
+    private fun stopScan() {
+        handler.removeCallbacks(scanTimeout)
+        val scanner = activeScanner
+        val callback = scanCallback
+        activeScanner = null
+        scanCallback = null
+        if (scanner != null && callback != null) scanner.stopScan(callback)
     }
 
     // ---------------- 连接 ----------------
     fun connect(device: BluetoothDevice) {
-        disconnect()
-        gatt = device.connectGatt(context, false, gattCallback)
+        closeGatt()
+        gatt = device.connectGatt(
+            context,
+            false,
+            gattCallback,
+            BluetoothDevice.TRANSPORT_LE,
+            BluetoothDevice.PHY_LE_1M_MASK,
+            handler,
+        )
+        if (gatt == null) listener.onError("无法连接 FoloPassport")
     }
 
     fun disconnect() {
+        stopScan()
+        val notify = gatt != null || ready
+        closeGatt()
+        if (notify) listener.onConnectionChanged(false)
+    }
+
+    private fun closeGatt() {
         pendingWriteQueue.clear()
         writeInFlight = false
+        ready = false
         gatt?.disconnect()
         gatt?.close()
         gatt = null
         txChar = null
         rxChar = null
-        listener.onConnectionChanged(false)
     }
 
     // ---------------- GATT 回调 ----------------
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (gatt !== g) {
+                g.close()
+                return
+            }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    listener.onConnectionChanged(true)
-                    g.requestMtu(SyncProtocol.PREFERRED_MTU)
-                    g.discoverServices()
+                    if (!g.requestMtu(SyncProtocol.PREFERRED_MTU)) {
+                        discoverServices(g)
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    if (gatt === g) {
-                        gatt = null
-                        txChar = null
-                        rxChar = null
-                    }
+                    ready = false
+                    gatt = null
+                    txChar = null
+                    rxChar = null
+                    g.close()
                     listener.onConnectionChanged(false)
                 }
+            }
+            if (status != BluetoothGatt.GATT_SUCCESS &&
+                newState != BluetoothProfile.STATE_DISCONNECTED
+            ) {
+                listener.onError("蓝牙连接失败 ($status)")
             }
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
-            // MTU 已协商,开始发现服务(discoverServices 已在连接时发起,这里无需重复)
+            discoverServices(g)
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                listener.onError("服务发现失败 ($status)")
+                return
+            }
             val service: BluetoothGattService? =
                 g.getService(SyncProtocol.SERVICE_UUID)
             if (service == null) {
@@ -155,6 +222,20 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
                 return
             }
             enableTxNotifications(g, txChar!!)
+        }
+
+        override fun onDescriptorWrite(
+            g: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int,
+        ) {
+            if (descriptor.uuid != UUID_CCCD) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                listener.onError("通知订阅失败 ($status)")
+                return
+            }
+            ready = true
+            listener.onConnectionChanged(true)
         }
 
         override fun onCharacteristicChanged(
@@ -173,15 +254,28 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
             status: Int,
         ) {
             writeInFlight = false
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                listener.onError("同步写入失败 ($status)")
+            }
             pumpWrites()
         }
     }
 
+    private fun discoverServices(g: BluetoothGatt) {
+        if (!g.discoverServices()) listener.onError("无法启动服务发现")
+    }
+
     private fun enableTxNotifications(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
-        g.setCharacteristicNotification(ch, true)
-        val cccd = ch.getDescriptor(UUID_CCCD) ?: return
+        if (!g.setCharacteristicNotification(ch, true)) {
+            listener.onError("无法启用设备通知")
+            return
+        }
+        val cccd = ch.getDescriptor(UUID_CCCD) ?: run {
+            listener.onError("设备缺少通知描述符")
+            return
+        }
         cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        g.writeDescriptor(cccd)
+        if (!g.writeDescriptor(cccd)) listener.onError("无法订阅设备通知")
     }
 
     // ---------------- 发送(写 RX) ----------------
@@ -272,6 +366,7 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
     }
 
     companion object {
+        private const val SCAN_TIMEOUT_MS = 12_000L
         private val UUID_CCCD =
             java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }

@@ -23,14 +23,14 @@ static const char *TAG = "sync_ble";
 
 #define DEVICE_NAME "FoloPassport"
 
-// UUID 字符串(参见设计文档):
-//   服务  61692d70-6173-7370-6f72-742d73796e63   ASCII "ai-passport-sync"
-//   TX    61692d70-6173-7370-6f72-742d73796e64
-//   RX    61692d70-6173-7370-6f72-742d73796e65
-// NimBLE 的 BLE_UUID128_INIT 按字节序反转(LSB 在前)。
+// UUID strings (see the protocol document):
+//   Service  61692d70-6173-7370-6f72-742d73796e63   ASCII "ai-passport-sync"
+//   TX       61692d70-6173-7370-6f72-742d73796e64
+//   RX       61692d70-6173-7370-6f72-742d73796e65
+// BLE_UUID128_INIT expects the complete UUID in little-endian byte order.
 #define UUID_BYTES(tail) \
-    0x61, 0x69, 0x2d, 0x70, 0x61, 0x73, 0x73, 0x70, \
-    0x6f, 0x72, 0x74, 0x2d, 0x73, 0x79, 0x6e, (tail)
+    (tail), 0x6e, 0x79, 0x73, 0x2d, 0x74, 0x72, 0x6f, \
+    0x70, 0x73, 0x73, 0x61, 0x70, 0x2d, 0x69, 0x61
 
 static const ble_uuid128_t s_svc_uuid = BLE_UUID128_INIT(UUID_BYTES(0x63));
 static const ble_uuid128_t s_tx_uuid  = BLE_UUID128_INIT(UUID_BYTES(0x64));
@@ -112,22 +112,41 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
 static void advertise(void)
 {
     uint8_t addr_type;
-    if (ble_hs_id_infer_auto(0, &addr_type) != 0) return;
+    int rc = ble_hs_id_infer_auto(0, &addr_type);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "failed to infer BLE address type: %d", rc);
+        return;
+    }
 
     struct ble_hs_adv_fields fields = { 0 };
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.name = (const uint8_t *)DEVICE_NAME;
-    fields.name_len = strlen(DEVICE_NAME);
-    fields.name_is_complete = 1;
-    fields.uuids128 = (ble_uuid128_t *)&s_svc_uuid;   // 广播服务 UUID,方便手机过滤
+    fields.uuids128 = (ble_uuid128_t *)&s_svc_uuid;
     fields.num_uuids128 = 1;
-    ble_gap_adv_set_fields(&fields);
+    fields.uuids128_is_complete = 1;
+    rc = ble_gap_adv_set_fields(&fields);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "failed to set advertising data: %d", rc);
+        return;
+    }
+
+    // A legacy advertising packet is limited to 31 bytes. Keep the service
+    // UUID in the primary packet and move the complete name to scan response.
+    struct ble_hs_adv_fields response = { 0 };
+    response.name = (const uint8_t *)DEVICE_NAME;
+    response.name_len = strlen(DEVICE_NAME);
+    response.name_is_complete = 1;
+    rc = ble_gap_adv_rsp_set_fields(&response);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "failed to set scan response data: %d", rc);
+        return;
+    }
 
     struct ble_gap_adv_params params = { 0 };
     params.conn_mode = BLE_GAP_CONN_MODE_UND;          // 可连接
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    if (ble_gap_adv_start(addr_type, NULL, BLE_HS_FOREVER, &params, gap_event, NULL) != 0) {
-        ESP_LOGE(TAG, "广播启动失败");
+    rc = ble_gap_adv_start(addr_type, NULL, BLE_HS_FOREVER, &params, gap_event, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "failed to start advertising: %d", rc);
     }
 }
 

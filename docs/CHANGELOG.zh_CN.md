@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- 修复 BLE 发现与连接：纠正固件 UUID 字节序，将超出 legacy 广播上限的数据拆分到
+  advertising 与 scan response，并让 Android 按设备名或服务 UUID 匹配、正确申请
+  运行时权限、为扫描设置超时，以及串行执行 GATT 初始化。
 - 参考 DayRing 的视觉语言重新设计固件启动页、录音页、Days 页和 Todo 页：使用
   纸白底色、黑白字体、细边框、紧凑状态信息、磁带卷盘、日期牌、任务行，以及
   针对 240×320 屏幕适配的常驻三分区底栏。
