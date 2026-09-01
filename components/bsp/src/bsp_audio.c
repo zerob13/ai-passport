@@ -124,6 +124,7 @@ esp_err_t bsp_audio_init(void) {
 
 esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
     if (!s_dev) return ESP_ERR_INVALID_STATE;
+    if (ch < 1 || ch > 2) return ESP_ERR_INVALID_ARG;
     if (s_opened && s_hz == hz && s_bits == bits && s_ch == ch) return ESP_OK;   // 同格式复用
 
     if (s_opened) {
@@ -138,7 +139,8 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
     esp_codec_dev_sample_info_t fs = {
         .bits_per_sample = bits,
         .channel = ch,
-        .channel_mask = ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0),
+        .channel_mask = ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) |
+                        (ch == 2 ? ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1) : 0),
         .sample_rate = hz,
         .mclk_multiple = 0,          // 0 → 驱动按默认 256xfs 取 MCLK
     };

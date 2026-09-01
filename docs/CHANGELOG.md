@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Fixed noisy system-chime playback by opening the ES8311 DAC path as stereo,
+  selecting both I2S slots, and duplicating each mono PCM sample to both slots.
 - Added original ascending startup and descending software-shutdown chimes;
   holding OK in paging mode now plays the shutdown sound, turns off the display,
   and enters deep sleep.

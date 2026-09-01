@@ -188,7 +188,7 @@ I2C0 使用 SDA GPIO10、SCL GPIO7。ES8311 地址为 7 bit `0x18`，CW2017 为 
 
 ## 8. ES8311 音频
 
-MCU 是 I2S master，ES8311 是 slave；I2S0 的 TX/RX 全双工通道共享 MCLK/BCLK/WS。当前数据通路为标准 I2S、16 bit slot 设置、双 slot 物理总线，但对外演示以 16 kHz/16 bit/单声道 PCM 打开 codec。
+MCU 是 I2S master，ES8311 是 slave；I2S0 的 TX/RX 全双工通道共享 MCLK/BCLK/WS。麦克风录音以 16 kHz/16 bit/单声道 PCM 打开。扬声器播放在标准 I2S 双 slot 总线上以双声道 PCM 打开，并将单声道采样复制到两个 slot；实机测得向 DAC 通路发送单声道 PCM 只会产生噪音。
 
 | 信号 | GPIO | 数据方向 |
 | --- | ---: | --- |
@@ -205,6 +205,7 @@ MCU 是 I2S master，ES8311 是 slave；I2S0 的 TX/RX 全双工通道共享 MCL
 - close/open 周围的 I2S enable 是为满足驱动内部 disable 状态机，避免 READY 状态报错。
 - 不要在 open 后手写 ES8311 REG01–REG06 时钟分频；驱动已根据采样率和 256×fs MCLK 配置。
 - `no_dac_ref=true` 对单声道麦克风录音是必要的；改为 false 会让读入通道成为 DAC reference，表现为录音恒零。
+- 扬声器通路必须以双声道和双 channel mask 打开；播放单声道声音时，将同一采样交错写入左右两个 slot。
 - 麦克风模拟输入增益当前为 30 dB；输出音量 API 为 0–100%。增益和音量不是同一个概念。
 - `bsp_audio_read/write` 是阻塞调用，不能放在按键回调或 LVGL 任务中。
 - I2S DMA 当前为 6 个 descriptor、每个 240 frame。更改 DMA 或 LVGL buffer 前必须联合评估内部 RAM。

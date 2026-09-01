@@ -112,15 +112,22 @@ size_t app_chime_render(app_chime_t chime, size_t offset,
 #ifndef APP_CHIME_SYNTH_ONLY
 bool app_chime_play(app_chime_t chime)
 {
-    if (bsp_audio_set_format(APP_CHIME_SAMPLE_RATE, 16, 1) != ESP_OK) return false;
-    bsp_audio_set_volume(48);
+    if (bsp_audio_set_format(APP_CHIME_SAMPLE_RATE, 16, 2) != ESP_OK) return false;
+    bsp_audio_set_volume(80);
 
-    int16_t buffer[256];
+    int16_t mono[128];
+    int16_t stereo[256];
     size_t offset = 0;
     size_t count;
-    while ((count = app_chime_render(chime, offset, buffer,
-                                     sizeof(buffer) / sizeof(buffer[0]))) > 0) {
-        if (bsp_audio_write(buffer, count * sizeof(buffer[0])) != ESP_OK) return false;
+    while ((count = app_chime_render(chime, offset, mono,
+                                     sizeof(mono) / sizeof(mono[0]))) > 0) {
+        for (size_t i = 0; i < count; i++) {
+            stereo[i * 2] = mono[i];
+            stereo[i * 2 + 1] = mono[i];
+        }
+        if (bsp_audio_write(stereo, count * 2 * sizeof(stereo[0])) != ESP_OK) {
+            return false;
+        }
         offset += count;
     }
     return offset == app_chime_sample_count(chime);

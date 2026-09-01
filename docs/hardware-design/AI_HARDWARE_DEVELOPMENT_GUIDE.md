@@ -141,13 +141,14 @@ Troubleshoot in order: bus-init log, scan results for `0x18`/`0x63`, power/groun
 
 ## 8. ES8311 audio
 
-The MCU is I2S master and the ES8311 is slave. I2S0 TX/RX shares MCLK GPIO6, BCLK GPIO5, and WS GPIO3; DOUT is GPIO2 and DIN is GPIO4. The demo opens 16 kHz, 16-bit, mono PCM over a physically two-slot standard-I2S bus.
+The MCU is I2S master and the ES8311 is slave. I2S0 TX/RX shares MCLK GPIO6, BCLK GPIO5, and WS GPIO3; DOUT is GPIO2 and DIN is GPIO4. Microphone capture opens 16 kHz, 16-bit mono PCM. Speaker playback opens two-channel PCM on the two-slot standard-I2S bus and duplicates mono samples into both slots; sending one-channel PCM to the DAC path produced noise on measured hardware.
 
 - Call `bsp_audio_set_format()` before PCM I/O.
 - A format change must close and reopen `esp_codec_dev`; an already open device is not reconfigured.
 - Preserve the I2S enable/disable sequence around close/open.
 - Do not write ES8311 clock-divider registers after open; the driver derives them from sample rate and 256×fs MCLK.
 - Keep `no_dac_ref=true` for mono microphone input; false can produce all-zero capture.
+- Open the speaker path with two channels and both channel-mask bits, then interleave identical samples into the left and right slots for mono sounds.
 - Microphone analog gain is 30 dB; output volume is a separate 0–100% value.
 - `bsp_audio_read/write` block and must not run in button callbacks or the LVGL task.
 - I2S DMA uses six descriptors of 240 frames each.
