@@ -32,8 +32,7 @@ also fires a single click.
 The paging screen shows four compact page cards, highlights the current card,
 uses a `N/4` indicator, and shows battery level in the header. All firmware
 branding visible to users says `DimOS`. The BLE name `FoloPassport`, service
-UUIDs, and protocol identifiers remain unchanged for compatibility with
-released apps and flashing tools.
+UUIDs, and flashing path remain unchanged; the companion data protocol is v2.
 
 Normal application startup plays an original short ascending system chime.
 Paging-mode shutdown plays an original descending chime before deep sleep.
@@ -61,18 +60,20 @@ UI before its screen is deleted.
      device (4:1) and streamed to the phone over BLE; the phone stores the file.
    - Screen shows elapsed time, live status (rec / linked / error), and the
      current file label derived from device time.
-   - UP / DOWN: no-op in v1 (nothing to navigate inside the page).
+   - UP / DOWN: no-op (nothing to navigate inside the page).
    - Leaving the page (OK double / long, or BLE disconnect) while recording
      stops and finalizes the recording first.
    - Requires a live BLE link; if the link is lost mid-recording the device
      stops and shows an error (the phone keeps the partial data up to the loss).
 
-2. **Today's schedule** — `app_schedule.c`
+2. **Schedule list** — `app_schedule.c`
    - Data pushed by the phone (`SCHEDULE_CLEAR` + `SCHEDULE_ADD`, see §3).
-   - One event per screen ("card"): time range, title, position `i/N`.
-   - UP / DOWN click: previous / next event (wraps).
-   - OK click: no-op in v1.
-   - Header shows today's date from the phone-synced clock and timezone.
+   - Shows four dated events per page, with time or all-day state and title.
+   - UP / DOWN click: previous / next page, stopping at the list boundaries.
+   - OK click: no-op.
+   - Opening the page selects the page containing today's first event. If
+     today is empty, it selects the first future event or the final past page.
+   - The header shows today's date, item count, and current/total page.
 
 3. **Todo** — `app_todo.c`
    - Data pushed by the phone (`TODO_CLEAR` + `TODO_ADD`, see §3).
@@ -133,9 +134,9 @@ Invalid header → link is de-synchronized; the phone reconnects.
 
 | Type | Name | Payload |
 | --- | --- | --- |
-| `0x01` | `HELLO` | `ver u8` (protocol version, currently `1`), `unix_time u32`, `tz_min i16` (minutes east of UTC, e.g. +480) |
+| `0x01` | `HELLO` | `ver u8` (protocol version, currently `2`), `unix_time u32`, `tz_min i16` (minutes east of UTC, e.g. +480) |
 | `0x02` | `SCHEDULE_CLEAR` | — |
-| `0x03` | `SCHEDULE_ADD` | `id u16`, `start_min u16` (minutes since midnight), `end_min u16`, `title_len u8` (≤ 60), `title utf8` |
+| `0x03` | `SCHEDULE_ADD` | `id u16`, `epoch_day i32` (local date as days since 1970-01-01), `start_min u16`, `end_min u16`, `flags u8` (bit0 = all day), `title_len u8` (≤ 60), `title utf8` |
 | `0x05` | `TODO_CLEAR` | — |
 | `0x06` | `TODO_ADD` | `id u16`, `done u8`, `title_len u8` (≤ 60), `title utf8` |
 | `0x08` | `MEDIA_CLEAR` | — |
@@ -147,9 +148,11 @@ Invalid header → link is de-synchronized; the phone reconnects.
 
 `SCHEDULE_ADD` / `TODO_ADD` insert or replace the item with the same `id`.
 Titles are UTF-8; the screen renders them with the embedded CJK font, missing
-glyphs fall back to the Latin font. The store keeps only today's schedule and
-the full todo list, in RAM (phone re-pushes on every connect; nothing is
-persisted to flash). Artwork is fixed at 96×96 RGB565 and becomes visible only
+glyphs fall back to the Latin font. Protocol v2 intentionally replaces the v1
+schedule payload and requires the matching companion app. The phone sends up
+to 40 imported events nearest to the current date; the device keeps all 40 and
+the full todo list in RAM, sorts events chronologically, and pages locally.
+Nothing is persisted to flash. Artwork is fixed at 96×96 RGB565 and becomes visible only
 after its ordering and total length validate; an incomplete image is never drawn.
 
 ### TX: device → phone notifications
@@ -166,7 +169,8 @@ after its ordering and total length validate; an incomplete image is never drawn
 
 - **Connect**: phone connects → requests MTU → subscribes to TX notify →
   sends `HELLO` → `SCHEDULE_CLEAR` + `SCHEDULE_ADD`×N → `TODO_CLEAR` +
-  `TODO_ADD`×N. It then sends `MEDIA_INFO` and artwork when a media session is
+  `TODO_ADD`×N. `N` is at most 40 and includes dates around today. It then
+  sends `MEDIA_INFO` and artwork when a media session is
   active, otherwise `MEDIA_CLEAR`. The device replies `STATUS` on link setup.
 - **Recording**: OK starts → `AUDIO_START` → live `AUDIO_DATA` stream
   (approximately one notification every 60 ms) → OK stops or page exit →
@@ -242,8 +246,8 @@ Pure C, no ESP-IDF/LVGL includes, covered by host tests (`tests/`):
    visible `CalendarContract.Instances` off the main thread for the selected
    past/future day range, persist the imported range, and do not edit the
    source calendars.
-4. On every connect: `HELLO` → today's imported schedule (up to 32 items) →
-   todo push (order shown above).
+4. On every connect: `HELLO` → up to 40 imported events nearest today →
+   todo push (order shown above). Protocol v1 companion builds are unsupported.
 5. Recording: on `AUDIO_START` open a file and show the live receiver; append
    each `AUDIO_DATA` payload while updating elapsed time and received bytes; on
    `AUDIO_END` finalize and refresh the recording list. The list provides
@@ -256,10 +260,10 @@ Pure C, no ESP-IDF/LVGL includes, covered by host tests (`tests/`):
    little-endian RGB565. This explicitly supports Spotify and generically
    supports players that publish a standard media session.
 
-Limitations: the app may retain a multi-day imported calendar range, but the v1
-device protocol keeps only today's first 32 events in RAM and re-pushes them on
-connect. UI text without a glyph in the CJK subset renders as a placeholder
-box; UP/DOWN on recording and music pages is unused. If Android kills the
+Limitations: the app retains the complete imported range, while the device
+receives the 40 events nearest today and reuses that cached list until the next
+sync. UI text without a glyph in the CJK subset renders as a placeholder box;
+UP/DOWN on recording and music pages is unused. If Android kills the
 companion process, BLE and the media bridge resume after the app is reopened.
 
 Related: [agent guide](../development/agent-guide.md),

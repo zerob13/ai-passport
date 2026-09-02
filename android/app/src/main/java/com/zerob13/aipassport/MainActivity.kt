@@ -336,7 +336,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
             result.onSuccess { events ->
                 refreshLists()
                 pushSnapshotIfConnected()
-                toast("已导入 ${events.size} 项，DimOS 已同步今天的日程")
+                toast("已导入 ${events.size} 项，已同步至 DimOS（最多 40 项）")
             }.onFailure {
                 toast("系统日历导入失败")
             }
@@ -361,7 +361,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
     }
 
     private fun pushSnapshotIfConnected() {
-        if (ble.isConnected) ble.pushSnapshot(repo.loadTodaySchedule(), repo.loadTodos())
+        if (ble.isConnected) ble.pushSnapshot(repo.loadDeviceSchedule(), repo.loadTodos())
     }
 
     private fun confirmDeleteTodo(item: TodoItem) {
@@ -445,7 +445,7 @@ class MainActivity : AppCompatActivity(), SyncListener {
                 if (repo.loadRecordings().isEmpty()) View.VISIBLE else View.GONE
         }
         if (connected) {
-            ble.pushSnapshot(repo.loadTodaySchedule(), repo.loadTodos())
+            ble.pushSnapshot(repo.loadDeviceSchedule(), repo.loadTodos())
             mediaBridge.currentSnapshot()?.let(ble::sendNowPlaying) ?: ble.clearNowPlaying()
         }
     }

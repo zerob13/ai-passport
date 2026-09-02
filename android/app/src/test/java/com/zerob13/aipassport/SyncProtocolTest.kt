@@ -93,38 +93,62 @@ class SyncProtocolTest {
 
     @Test
     fun scheduleAddMessage() {
-        val item = ScheduleItem(2, 852, 940, "Break")
+        val item = ScheduleItem(
+            id = 2,
+            epochDay = -3,
+            startMin = 852,
+            endMin = 940,
+            allDay = false,
+            title = "Break",
+        )
         val frame = RxMessages.scheduleAdd(item)!!
         val decoded = FrameCodec.decode(frame, 0, frame.size)!!
         assertEquals(SyncProtocol.RX_SCHEDULE_ADD, decoded.type)
         val p = decoded.payload
-        assertEquals(7 + 5, p.size)
+        assertEquals(12 + 5, p.size)
         assertEquals(2, FrameCodec.getU16(p, 0))
-        assertEquals(852, FrameCodec.getU16(p, 2))
-        assertEquals(940, FrameCodec.getU16(p, 4))
-        assertEquals(5, p[6].toInt())
-        assertEquals("Break", p.copyOfRange(7, 12).toString(Charsets.UTF_8))
+        assertEquals(-3, FrameCodec.getI32(p, 2))
+        assertEquals(852, FrameCodec.getU16(p, 6))
+        assertEquals(940, FrameCodec.getU16(p, 8))
+        assertEquals(0, p[10].toInt())
+        assertEquals(5, p[11].toInt())
+        assertEquals("Break", p.copyOfRange(12, 17).toString(Charsets.UTF_8))
     }
 
     @Test
     fun scheduleTitleClampedToMax() {
         val longTitle = "x".repeat(SyncProtocol.MAX_TITLE + 20)
-        val frame = RxMessages.scheduleAdd(ScheduleItem(1, 0, 60, longTitle))!!
+        val frame = RxMessages.scheduleAdd(
+            ScheduleItem(1, 0, 0, 60, false, longTitle)
+        )!!
         val decoded = FrameCodec.decode(frame, 0, frame.size)!!
         val p = decoded.payload
-        assertEquals(SyncProtocol.MAX_TITLE.toByte(), p[6])
-        assertEquals(7 + SyncProtocol.MAX_TITLE, p.size)
+        assertEquals(SyncProtocol.MAX_TITLE.toByte(), p[11])
+        assertEquals(12 + SyncProtocol.MAX_TITLE, p.size)
     }
 
     @Test
     fun scheduleTitleDoesNotSplitUtf8CodePoint() {
         val title = "a".repeat(59) + "中"
-        val frame = RxMessages.scheduleAdd(ScheduleItem(1, 0, 60, title))!!
+        val frame = RxMessages.scheduleAdd(
+            ScheduleItem(1, 0, 0, 60, false, title)
+        )!!
         val payload = FrameCodec.decode(frame, 0, frame.size)!!.payload
-        val encodedTitle = payload.copyOfRange(7, payload.size)
+        val encodedTitle = payload.copyOfRange(12, payload.size)
 
-        assertEquals(59, payload[6].toInt())
+        assertEquals(59, payload[11].toInt())
         assertEquals("a".repeat(59), encodedTitle.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun scheduleAllDayNormalizesTimeAndSetsFlag() {
+        val item = ScheduleItem(1, 20_000, 500, 600, true, "Holiday")
+        val frame = RxMessages.scheduleAdd(item)!!
+        val payload = FrameCodec.decode(frame, 0, frame.size)!!.payload
+
+        assertEquals(0, FrameCodec.getU16(payload, 6))
+        assertEquals(1439, FrameCodec.getU16(payload, 8))
+        assertEquals(SyncProtocol.SCHEDULE_FLAG_ALL_DAY, payload[10].toInt())
     }
 
     @Test

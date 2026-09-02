@@ -17,6 +17,24 @@ static void test_put_u32(uint8_t *p, uint32_t value)
     p[3] = (uint8_t)(value >> 24);
 }
 
+static size_t test_schedule_frame(uint8_t *frame, uint16_t id, int32_t epoch_day,
+                                  uint16_t start_min, uint16_t end_min,
+                                  uint8_t flags, const uint8_t *title,
+                                  uint8_t title_len)
+{
+    frame[0] = 0xA5;
+    frame[1] = SYNC_RX_SCHEDULE_ADD;
+    frame[2] = (uint8_t)(12 + title_len);
+    test_put_u16(frame + 3, id);
+    test_put_u32(frame + 5, (uint32_t)epoch_day);
+    test_put_u16(frame + 9, start_min);
+    test_put_u16(frame + 11, end_min);
+    frame[13] = flags;
+    frame[14] = title_len;
+    memcpy(frame + 15, title, title_len);
+    return 15u + title_len;
+}
+
 int main(void)
 {
     uint8_t frame[SYNC_FRAME_MAX];
@@ -65,61 +83,59 @@ int main(void)
     sync_store_init(&st);
     assert(!st.time_set);
     uint8_t hello[10] = { 0xA5, SYNC_RX_HELLO, 7,
-                          0x01,                                  // ver
+                          SYNC_PROTO_VER,                         // ver
                           0x00, 0xF1, 0x53, 0x65,                // unix_time 1700000000 (0x6553F100)
                           0xE0, 0x01 };                          // tz +480
     assert(sync_proto_rx(&st, hello, sizeof(hello)) == SYNC_RX_HELLO);
     assert(st.time_set && st.unix_time == 1700000000 && st.tz_min == 480);
 
-    // 清空 + 添加日程(乱序,应按时段排序)
+    // Schedule items sort by date, all-day state, and start time.
     uint8_t clear[3] = { 0xA5, SYNC_RX_SCHEDULE_CLEAR, 0 };
     assert(sync_proto_rx(&st, clear, sizeof(clear)) == SYNC_RX_SCHEDULE_CLEAR);
     assert(st.sched_count == 0);
 
-    uint8_t add1[] = { 0xA5, SYNC_RX_SCHEDULE_ADD, 12,
-                       0x02, 0x00, 0x54, 0x03, 0xAC, 0x03, 5,
-                       'B', 'r', 'e', 'a', 'k' };                // id=2 14:12~15:40
-    uint8_t add2[] = { 0xA5, SYNC_RX_SCHEDULE_ADD, 11,
-                       0x01, 0x00, 0x1C, 0x02, 0x58, 0x02, 4,
-                       'T', 'e', 'a', '!' };                     // id=1 09:00~10:00
-    assert(sync_proto_rx(&st, add1, sizeof(add1)) == SYNC_RX_SCHEDULE_ADD);
-    assert(sync_proto_rx(&st, add2, sizeof(add2)) == SYNC_RX_SCHEDULE_ADD);
-    assert(st.sched_count == 2);
-    assert(st.sched[0].id == 1 && st.sched[0].start_min == 540);
-    assert(st.sched[1].id == 2 && st.sched[1].start_min == 852);
-    assert(strcmp(st.sched[0].title, "Tea!") == 0);
-    assert(st.sched[0].title_len == 4);
+    uint8_t legacy_schedule[] = { 0xA5, SYNC_RX_SCHEDULE_ADD, 8,
+                                  1, 0, 0, 0, 1, 0, 1, 'x' };
+    assert(sync_proto_rx(&st, legacy_schedule, sizeof(legacy_schedule)) < 0);
 
-    // 同 id 替换,条数不变
-    uint8_t add2b[] = { 0xA5, SYNC_RX_SCHEDULE_ADD, 12,
-                        0x02, 0x00, 0x20, 0x03, 0xC0, 0x03, 5,
-                        'L', 'u', 'n', 'c', 'h' };               // id=2 改为 13:20~16:00
-    assert(sync_proto_rx(&st, add2b, sizeof(add2b)) == SYNC_RX_SCHEDULE_ADD);
-    assert(st.sched_count == 2);
-    assert(st.sched[1].id == 2 && st.sched[1].start_min == 800);
+    n = test_schedule_frame(frame, 2, 20700, 852, 940, 0,
+                            (const uint8_t *)"Break", 5);
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
+    n = test_schedule_frame(frame, 1, 20699, 540, 600, 0,
+                            (const uint8_t *)"Tea!", 4);
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
+    n = test_schedule_frame(frame, 3, 20699, 600, 660,
+                            SYNC_SCHED_FLAG_ALL_DAY,
+                            (const uint8_t *)"Holiday", 7);
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
+    assert(st.sched_count == 3);
+    assert(st.sched[0].id == 3 && st.sched[0].start_min == 0);
+    assert(st.sched[1].id == 1 && st.sched[1].start_min == 540);
+    assert(st.sched[2].id == 2 && st.sched[2].epoch_day == 20700);
+
+    // Replacing an id also repositions it.
+    n = test_schedule_frame(frame, 2, 20699, 480, 600, 0,
+                            (const uint8_t *)"Lunch", 5);
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
+    assert(st.sched_count == 3);
+    assert(st.sched[1].id == 2 && st.sched[1].start_min == 480);
     assert(strcmp(st.sched[1].title, "Lunch") == 0);
 
-    // 标题超长:截断到 60 字节,不丢弃
-    uint8_t add_long[3 + 7 + 70];
-    add_long[0] = 0xA5; add_long[1] = SYNC_RX_SCHEDULE_ADD; add_long[2] = 7 + 70;
-    add_long[3] = 9; add_long[4] = 0;                            // id=9
-    add_long[5] = 0; add_long[6] = 0; add_long[7] = 0; add_long[8] = 0;
-    add_long[9] = 70;
-    memset(add_long + 10, 'x', 70);
-    assert(sync_proto_rx(&st, add_long, sizeof(add_long)) == SYNC_RX_SCHEDULE_ADD);
-    assert(st.sched_count == 3);
-    // start_min=0 排最前(id=9 的长标题项)
+    uint8_t long_title[70];
+    memset(long_title, 'x', sizeof(long_title));
+    n = test_schedule_frame(frame, 9, 20698, 1, 2, 0,
+                            long_title, sizeof(long_title));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
     assert(st.sched[0].title_len == SYNC_MAX_TITLE);
     assert(st.sched[0].title[SYNC_MAX_TITLE] == '\0');
 
     // UTF-8 truncation must drop an incomplete multibyte code point.
-    uint8_t add_utf8[3 + 7 + 62] = {0};
-    add_utf8[0] = 0xA5; add_utf8[1] = SYNC_RX_SCHEDULE_ADD; add_utf8[2] = 7 + 62;
-    add_utf8[3] = 10; add_utf8[4] = 0;
-    add_utf8[9] = 62;
-    memset(add_utf8 + 10, 'a', 59);
-    add_utf8[69] = 0xE4; add_utf8[70] = 0xB8; add_utf8[71] = 0xAD;
-    assert(sync_proto_rx(&st, add_utf8, sizeof(add_utf8)) == SYNC_RX_SCHEDULE_ADD);
+    uint8_t utf8_title[62];
+    memset(utf8_title, 'a', 59);
+    utf8_title[59] = 0xE4; utf8_title[60] = 0xB8; utf8_title[61] = 0xAD;
+    n = test_schedule_frame(frame, 10, 20698, 2, 3, 0,
+                            utf8_title, sizeof(utf8_title));
+    assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
     const sync_sched_item_t *utf8_item = NULL;
     for (uint16_t i = 0; i < st.sched_count; i++) {
         if (st.sched[i].id == 10) utf8_item = &st.sched[i];
@@ -128,16 +144,18 @@ int main(void)
     assert(utf8_item->title_len == 59);
     assert(utf8_item->title[59] == '\0');
 
-    // 容量上限:满 32 条后丢弃
-    for (int i = 0; i < 40; i++) {
-        uint8_t a[3 + 7 + 1];
-        a[0] = 0xA5; a[1] = SYNC_RX_SCHEDULE_ADD; a[2] = 8;
-        a[3] = (uint8_t)(100 + i); a[4] = 0;
-        a[5] = (uint8_t)i; a[6] = 0; a[7] = (uint8_t)i; a[8] = 0;
-        a[9] = 1; a[10] = 't';
-        assert(sync_proto_rx(&st, a, sizeof(a)) == SYNC_RX_SCHEDULE_ADD);
+    // The device keeps forty complete items and pages locally.
+    assert(sync_proto_rx(&st, clear, sizeof(clear)) == SYNC_RX_SCHEDULE_CLEAR);
+    for (int i = 0; i < SYNC_MAX_SCHED + 5; i++) {
+        n = test_schedule_frame(frame, (uint16_t)(100 + i), 20690 + i,
+                                60, 120, 0, (const uint8_t *)"t", 1);
+        assert(sync_proto_rx(&st, frame, n) == SYNC_RX_SCHEDULE_ADD);
     }
     assert(st.sched_count == SYNC_MAX_SCHED);
+    assert(sync_sched_page_count(0) == 1);
+    assert(sync_sched_page_count(SYNC_MAX_SCHED) == 10);
+    assert(sync_sched_default_page(&st, 20700) == 2);
+    assert(sync_sched_default_page(&st, 20750) == 9);
 
     // ---- Todo ----
     uint8_t tclear[3] = { 0xA5, SYNC_RX_TODO_CLEAR, 0 };
@@ -266,6 +284,8 @@ int main(void)
     assert(sync_proto_rx(&st, unknown, sizeof(unknown)) == 0);
     uint8_t hello_short[3 + 6] = { 0xA5, SYNC_RX_HELLO, 6 };     // HELLO 负载长度错误
     assert(sync_proto_rx(&st, hello_short, sizeof(hello_short)) < 0);
+    uint8_t hello_v1[10] = { 0xA5, SYNC_RX_HELLO, 7, 1 };
+    assert(sync_proto_rx(&st, hello_v1, sizeof(hello_v1)) < 0);
 
     // ---- 本地时间换算 ----
     int y, m, d, h, mi;
@@ -277,6 +297,9 @@ int main(void)
     assert(y == 2023 && m == 11 && d == 14 && h == 22 && mi == 13);
     sync_proto_local_time(951782400, 0, &y, &m, &d, &h, &mi);    // 2000-02-29 闰日 UTC
     assert(y == 2000 && m == 2 && d == 29);
+    assert(sync_proto_local_day(1700000000, 480) == 19676);
+    sync_proto_date_from_day(19676, &y, &m, &d);
+    assert(y == 2023 && m == 11 && d == 15);
 
     return 0;
 }

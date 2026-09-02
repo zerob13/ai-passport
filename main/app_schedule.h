@@ -1,4 +1,4 @@
-// main/app_schedule.h —— 当天日程页:一条一屏,上下翻看。
+// main/app_schedule.h —— Imported schedule list with local page navigation.
 #pragma once
 
 #include "bsp_button.h"

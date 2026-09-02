@@ -17,6 +17,7 @@ static uint32_t get_u32(const uint8_t *p)
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 static int16_t get_i16(const uint8_t *p) { return (int16_t)get_u16(p); }
+static int32_t get_i32(const uint8_t *p) { return (int32_t)get_u32(p); }
 
 void sync_store_init(sync_store_t *st)
 {
@@ -37,30 +38,46 @@ static void copy_text(char *dst, uint8_t *len, size_t max,
     *len = m;
 }
 
-// 日程:按 id 替换或插入,并按 start_min 升序稳定插入。
-static void sched_upsert(sync_store_t *st, uint16_t id, uint16_t start_min,
-                         uint16_t end_min, const uint8_t *title, uint8_t title_len)
+static int sched_compare(const sync_sched_item_t *a, const sync_sched_item_t *b)
+{
+    if (a->epoch_day != b->epoch_day) return a->epoch_day < b->epoch_day ? -1 : 1;
+    bool a_all_day = (a->flags & SYNC_SCHED_FLAG_ALL_DAY) != 0;
+    bool b_all_day = (b->flags & SYNC_SCHED_FLAG_ALL_DAY) != 0;
+    if (a_all_day != b_all_day) return a_all_day ? -1 : 1;
+    if (a->start_min != b->start_min) return a->start_min < b->start_min ? -1 : 1;
+    if (a->id != b->id) return a->id < b->id ? -1 : 1;
+    return 0;
+}
+
+// Replace by id, then keep the cached list in calendar order.
+static void sched_upsert(sync_store_t *st, uint16_t id, int32_t epoch_day,
+                         uint16_t start_min, uint16_t end_min, uint8_t flags,
+                         const uint8_t *title, uint8_t title_len)
 {
     for (uint16_t i = 0; i < st->sched_count; i++) {
-        if (st->sched[i].id == id) {
-            st->sched[i].start_min = start_min;
-            st->sched[i].end_min = end_min;
-            copy_text(st->sched[i].title, &st->sched[i].title_len,
-                      SYNC_MAX_TITLE, title, title_len);
-            return;
-        }
+        if (st->sched[i].id != id) continue;
+        memmove(&st->sched[i], &st->sched[i + 1],
+                (st->sched_count - i - 1) * sizeof(st->sched[0]));
+        st->sched_count--;
+        break;
     }
     if (st->sched_count >= SYNC_MAX_SCHED) return;
+
+    sync_sched_item_t item = {
+        .id = id,
+        .epoch_day = epoch_day,
+        .start_min = start_min,
+        .end_min = end_min,
+        .flags = flags,
+    };
+    copy_text(item.title, &item.title_len, SYNC_MAX_TITLE, title, title_len);
+
     uint16_t i = st->sched_count;
-    while (i > 0 && st->sched[i - 1].start_min > start_min) {
+    while (i > 0 && sched_compare(&item, &st->sched[i - 1]) < 0) {
         st->sched[i] = st->sched[i - 1];
         i--;
     }
-    st->sched[i].id = id;
-    st->sched[i].start_min = start_min;
-    st->sched[i].end_min = end_min;
-    copy_text(st->sched[i].title, &st->sched[i].title_len,
-              SYNC_MAX_TITLE, title, title_len);
+    st->sched[i] = item;
     st->sched_count++;
 }
 
@@ -87,10 +104,25 @@ static void todo_upsert(sync_store_t *st, uint16_t id, uint8_t done,
 
 static int rx_schedule_add(sync_store_t *st, const uint8_t *p, size_t n)
 {
-    if (n < 7) return -1;                       // id2 + start2 + end2 + len1
-    uint8_t tlen = p[6];
-    if (n != 7u + tlen) return -1;
-    sched_upsert(st, get_u16(p), get_u16(p + 2), get_u16(p + 4), p + 7, tlen);
+    if (n < 12) return -1;
+    uint8_t tlen = p[11];
+    if (n != 12u + tlen) return -1;
+
+    uint16_t start_min = get_u16(p + 6);
+    uint16_t end_min = get_u16(p + 8);
+    uint8_t flags = p[10];
+    if ((flags & ~SYNC_SCHED_FLAG_ALL_DAY) != 0 ||
+        start_min > 1439 || end_min > 1439) {
+        return -1;
+    }
+    if ((flags & SYNC_SCHED_FLAG_ALL_DAY) != 0) {
+        start_min = 0;
+        end_min = 1439;
+    } else if (start_min >= end_min) {
+        return -1;
+    }
+    sched_upsert(st, get_u16(p), get_i32(p + 2), start_min, end_min,
+                 flags, p + 12, tlen);
     return SYNC_RX_SCHEDULE_ADD;
 }
 
@@ -193,7 +225,7 @@ int sync_proto_rx(sync_store_t *st, const uint8_t *frame, size_t len)
     const uint8_t *p = frame + 3;
     switch (frame[1]) {
     case SYNC_RX_HELLO:
-        if (plen != 7) return -1;
+        if (plen != 7 || p[0] != SYNC_PROTO_VER) return -1;
         st->time_set = true;
         st->unix_time = get_u32(p + 1);
         st->tz_min = get_i16(p + 5);
@@ -299,6 +331,25 @@ const sync_sched_item_t *sync_sched_at(const sync_store_t *st, uint16_t idx)
     return &st->sched[idx];
 }
 
+uint16_t sync_sched_page_count(uint16_t total)
+{
+    return total == 0 ? 1 :
+           (uint16_t)((total + SYNC_SCHED_PAGE_SIZE - 1) / SYNC_SCHED_PAGE_SIZE);
+}
+
+uint16_t sync_sched_default_page(const sync_store_t *st, int32_t today_epoch_day)
+{
+    if (st->sched_count == 0) return 0;
+    uint16_t index = st->sched_count - 1;
+    for (uint16_t i = 0; i < st->sched_count; i++) {
+        if (st->sched[i].epoch_day >= today_epoch_day) {
+            index = i;
+            break;
+        }
+    }
+    return (uint16_t)(index / SYNC_SCHED_PAGE_SIZE);
+}
+
 const sync_todo_item_t *sync_todo_at(const sync_store_t *st, uint16_t idx)
 {
     if (idx >= st->todo_count) return NULL;
@@ -334,13 +385,29 @@ static void civil_from_days(int64_t z, int *y, int *m, int *d)
     *d = (int)dd;
 }
 
+int32_t sync_proto_local_day(uint32_t unix_time, int16_t tz_min)
+{
+    int64_t secs = (int64_t)unix_time + (int64_t)tz_min * 60;
+    int64_t days = secs / 86400;
+    if (secs < 0 && secs % 86400 != 0) days--;
+    return (int32_t)days;
+}
+
+void sync_proto_date_from_day(int32_t epoch_day, int *year, int *mon, int *day)
+{
+    int yy = 0, mm = 0, dd = 0;
+    civil_from_days(epoch_day, &yy, &mm, &dd);
+    if (year) *year = yy;
+    if (mon) *mon = mm;
+    if (day) *day = dd;
+}
+
 void sync_proto_local_time(uint32_t unix_time, int16_t tz_min,
                            int *year, int *mon, int *day,
                            int *hour, int *min)
 {
     int64_t secs = (int64_t)unix_time + (int64_t)tz_min * 60;
-    int64_t days = secs / 86400;
-    if (secs < 0) days--;                 // C 向零取整,负秒修正
+    int64_t days = sync_proto_local_day(unix_time, tz_min);
     int64_t rem = secs - days * 86400;
     int hh = (int)(rem / 3600);
     int mn = (int)((rem % 3600) / 60);

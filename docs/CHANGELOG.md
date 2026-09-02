@@ -6,9 +6,12 @@
 
 ## Unreleased
 
+- Expanded the Days page from today's events to a locally cached, chronological
+  list of up to 40 imported events. It shows four items per page, pages with
+  UP/DOWN, and opens on the page containing today's first event.
 - Added the read-only `FAP_SCREENSHOT_V1` serial capture endpoint required by
-  the community publisher; it renders and returns the active DimOS screen only
-  when the publisher requests it.
+  the community publisher; it now streams the active DimOS render stripes
+  without allocating a second full-screen buffer.
 - Added a generic Android MediaSession bridge that syncs Spotify and compatible
   players' track, artist, album, source, play state, progress, and 96×96 cover
   art over BLE; added a matching firmware Music page with smooth progress.
@@ -27,7 +30,7 @@
   without requiring data-destructive uninstallation.
 - Replaced manual schedule entry with read-only Android system-calendar import;
   users choose the number of past and future days, the app keeps that imported
-  range, and the Passport receives today's events on sync.
+  range, and the Passport receives up to 40 events nearest today on sync.
 - Streams recordings into an animated live receiver, finalizes them as playable
   PCM WAV files in the public `Music/DimOS` directory, lists them in the
   app with playback and deletion, and uses rotating cassette reels on firmware.
@@ -49,13 +52,13 @@
 - Fixed firmware builds and prevented 60-byte schedule/todo titles from
   writing their terminator past the allocated buffer.
 - Added the DimOS sync app (replaces the demo menu on boot): a paging
-  UI (Recording / Today's schedule / Todo / Music) driven by UP/DOWN to flip pages, OK
+  UI (Recording / Schedule / Todo / Music) driven by UP/DOWN to flip pages, OK
   to enter a page, UP/DOWN for in-page navigation, and OK double-press (or
   long-press) to return to paging. Includes a Chinese font (Noto Sans CJK SC
   subset) for schedule/todo titles.
 - Added an Android companion app under `android/` that implements the
   `ai-passport-sync` BLE client: scan/connect to the device, time sync, push
-  today's schedule and todo, receive the live recording stream and save it to
+  the imported schedule and todo, receive the live recording stream and save it to
   phone storage, and echo todo toggles both ways. A `build-android.yml`
   workflow packages the APK (unit tests + `assembleDebug`) and publishes the
   artifact on tags.
@@ -63,7 +66,7 @@
   IMA-ADPCM over BLE to the phone in real time (~8 KB/s); the phone stores the
   file and finalizes it on `AUDIO_END`.
 - Defined the `ai-passport-sync` BLE service (GATT TX notify / RX write) with a
-  documented frame protocol for time sync, today's schedule, todo, todo
+  documented frame protocol for time sync, imported schedules, todo, todo
   toggles, recording upload, now playing, artwork, progress, and status — see
   `docs/software-design/passport-sync-app.md` (bilingual). The Android
   companion app implements this protocol to sync with the device.

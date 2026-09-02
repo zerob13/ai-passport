@@ -28,7 +28,7 @@ const app_page_t APP_PAGES[PAGER_PAGE_COUNT] = {
         .key = app_record_key, .refresh = app_record_refresh,
     },
     {
-        .name = "DAYS", .sub = "DAILY SCHEDULE", .hint = "TODAY AT A GLANCE",
+        .name = "DAYS", .sub = "SCHEDULE LIST", .hint = "ALL DATES AT A GLANCE",
         .enter = app_schedule_enter, .exit = app_schedule_exit,
         .key = app_schedule_key, .refresh = app_schedule_refresh,
     },

@@ -22,8 +22,9 @@ object SyncProtocol {
             cachedName == DEVICE_NAME ||
             SERVICE_UUID in advertisedServices
 
-    const val PROTO_VER = 1
+    const val PROTO_VER = 2
     const val MAX_TITLE = 60
+    const val MAX_SCHEDULE_ITEMS = 40
     const val MAX_MEDIA_SOURCE = 24
     const val MAX_PAYLOAD = 240
     const val AUDIO_DATA_MAX = MAX_PAYLOAD - 2 // seq(2B) 之外的负载上限
@@ -61,13 +62,16 @@ object SyncProtocol {
     const val FLAG_CHARGING = 0x02
     const val MEDIA_FLAG_PLAYING = 0x01
     const val MEDIA_FLAG_HAS_ART = 0x02
+    const val SCHEDULE_FLAG_ALL_DAY = 0x01
 }
 
 /** 一条日程(与设备端 sync_sched_item_t 对齐) */
 data class ScheduleItem(
     val id: Int,
+    val epochDay: Int,
     val startMin: Int,
     val endMin: Int,
+    val allDay: Boolean,
     val title: String,
 )
 
@@ -155,6 +159,8 @@ object FrameCodec {
         return v
     }
 
+    fun getI32(b: ByteArray, off: Int): Int = getU32(b, off).toInt()
+
     fun getI16(b: ByteArray, off: Int): Int {
         val u = getU16(b, off)
         return if (u >= 0x8000) u - 0x10000 else u
@@ -184,16 +190,21 @@ object RxMessages {
     fun scheduleClear(): ByteArray? =
         FrameCodec.encode(SyncProtocol.RX_SCHEDULE_CLEAR, ByteArray(0))
 
-    /** SCHEDULE_ADD: id u16, start u16, end u16, title_len u8, title */
+    /** SCHEDULE_ADD: id u16, epoch_day i32, start/end u16, flags u8, title. */
     fun scheduleAdd(item: ScheduleItem): ByteArray? {
+        if (item.id !in 0..0xFFFF || item.startMin !in 0..1439 ||
+            item.endMin !in 0..1439 || (!item.allDay && item.startMin >= item.endMin)
+        ) return null
         val t = textBytes(item.title, SyncProtocol.MAX_TITLE)
         val titleLen = t.size
-        val p = ByteArray(7 + titleLen)
+        val p = ByteArray(12 + titleLen)
         FrameCodec.putU16(p, 0, item.id)
-        FrameCodec.putU16(p, 2, item.startMin)
-        FrameCodec.putU16(p, 4, item.endMin)
-        p[6] = titleLen.toByte()
-        t.copyInto(p, 7, 0, titleLen)
+        FrameCodec.putU32(p, 2, item.epochDay.toLong() and 0xFFFF_FFFFL)
+        FrameCodec.putU16(p, 6, if (item.allDay) 0 else item.startMin)
+        FrameCodec.putU16(p, 8, if (item.allDay) 1439 else item.endMin)
+        p[10] = if (item.allDay) SyncProtocol.SCHEDULE_FLAG_ALL_DAY.toByte() else 0
+        p[11] = titleLen.toByte()
+        t.copyInto(p, 12, 0, titleLen)
         return FrameCodec.encode(SyncProtocol.RX_SCHEDULE_ADD, p)
     }
 

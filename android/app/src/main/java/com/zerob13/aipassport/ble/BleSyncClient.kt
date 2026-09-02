@@ -276,14 +276,15 @@ class BleSyncClient(private val context: Context, private val listener: SyncList
         if (!writeInFlight) pumpWrites()
     }
 
-    /** 连接后:对时 + 推送日程 + 推送 Todo。 */
+    /** Connect, set time, then replace the device's forty-item schedule and todo cache. */
     fun pushSnapshot(schedule: List<com.zerob13.aipassport.proto.ScheduleItem>,
                      todos: List<com.zerob13.aipassport.proto.TodoItem>) {
         val tz = java.util.TimeZone.getDefault()
         val offsetMin = tz.getOffset(System.currentTimeMillis()) / 60000
         RxMessages.hello(System.currentTimeMillis() / 1000, offsetMin)?.let(::enqueue)
         RxMessages.scheduleClear()?.let(::enqueue)
-        schedule.forEach { RxMessages.scheduleAdd(it)?.let(::enqueue) }
+        schedule.take(SyncProtocol.MAX_SCHEDULE_ITEMS)
+            .forEach { RxMessages.scheduleAdd(it)?.let(::enqueue) }
         RxMessages.todoClear()?.let(::enqueue)
         todos.forEach { RxMessages.todoAdd(it)?.let(::enqueue) }
     }

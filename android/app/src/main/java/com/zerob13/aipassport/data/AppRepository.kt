@@ -114,8 +114,8 @@ class AppRepository(context: Context) {
         return imported
     }
 
-    fun loadTodaySchedule(nowMs: Long = System.currentTimeMillis()): List<ScheduleItem> =
-        CalendarSchedule.todayItems(
+    fun loadDeviceSchedule(nowMs: Long = System.currentTimeMillis()): List<ScheduleItem> =
+        CalendarSchedule.deviceItems(
             loadCalendarEvents(),
             nowMs,
             ZoneId.systemDefault(),

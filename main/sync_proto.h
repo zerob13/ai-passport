@@ -10,9 +10,10 @@
 extern "C" {
 #endif
 
-#define SYNC_PROTO_VER      1        // 协议版本,HELLO.ver 携带
+#define SYNC_PROTO_VER      2        // 协议版本,HELLO.ver 携带
 #define SYNC_MAX_TITLE      60       // 标题上限(UTF-8 字节)
-#define SYNC_MAX_SCHED      32       // 当天日程上限
+#define SYNC_MAX_SCHED      40       // Imported schedule items kept in RAM
+#define SYNC_SCHED_PAGE_SIZE 4       // Rows rendered on one schedule page
 #define SYNC_MAX_TODO       32       // Todo 上限
 #define SYNC_MAX_MEDIA_SOURCE 24     // 播放器名称上限(UTF-8 字节)
 #define SYNC_MAX_PAYLOAD    240      // 单帧负载上限(兼容 MTU 247)
@@ -27,8 +28,8 @@ extern "C" {
 
 // RX(手机 → 设备)消息类型
 #define SYNC_RX_HELLO           0x01 // ver u8, unix_time u32, tz_min i16
-#define SYNC_RX_SCHEDULE_CLEAR  0x02 // 清空当天日程
-#define SYNC_RX_SCHEDULE_ADD    0x03 // id u16, start_min u16, end_min u16, title_len u8, title
+#define SYNC_RX_SCHEDULE_CLEAR  0x02 // Clear imported schedule data
+#define SYNC_RX_SCHEDULE_ADD    0x03 // id, epoch_day, start, end, flags, title
 #define SYNC_RX_TODO_CLEAR      0x05 // 清空 Todo
 #define SYNC_RX_TODO_ADD        0x06 // id u16, done u8, title_len u8, title
 #define SYNC_RX_MEDIA_CLEAR     0x08 // 清空 Now Playing
@@ -56,10 +57,15 @@ extern "C" {
 #define SYNC_MEDIA_FLAG_PLAYING 0x01
 #define SYNC_MEDIA_FLAG_HAS_ART 0x02
 
+// Schedule item flags.
+#define SYNC_SCHED_FLAG_ALL_DAY 0x01
+
 typedef struct {
     uint16_t id;
+    int32_t  epoch_day;          // Local calendar date as days since 1970-01-01
     uint16_t start_min;          // 当日 0 点起分钟数
     uint16_t end_min;
+    uint8_t  flags;
     uint8_t  title_len;
     char     title[SYNC_MAX_TITLE + 1];
 } sync_sched_item_t;
@@ -123,6 +129,15 @@ size_t sync_proto_build_audio_end(uint8_t *out, size_t cap, uint32_t dur_ms,
 size_t sync_proto_build_todo_toggle(uint8_t *out, size_t cap, uint16_t id, uint8_t done);
 size_t sync_proto_build_status(uint8_t *out, size_t cap, uint8_t soc,
                                uint8_t flags, uint16_t mv);
+
+// A schedule always has at least one logical page, including the empty state.
+uint16_t sync_sched_page_count(uint16_t total);
+// Choose today's first item, otherwise the first future item or the final past item.
+uint16_t sync_sched_default_page(const sync_store_t *st, int32_t today_epoch_day);
+// Return the local epoch day for a POSIX timestamp and fixed timezone offset.
+int32_t sync_proto_local_day(uint32_t unix_time, int16_t tz_min);
+// Convert an epoch day to its Gregorian date.
+void sync_proto_date_from_day(int32_t epoch_day, int *year, int *mon, int *day);
 
 // 存储查询/变更(UI 与页面使用)。
 const sync_sched_item_t *sync_sched_at(const sync_store_t *st, uint16_t idx);

@@ -1,10 +1,11 @@
 package com.zerob13.aipassport.data
 
 import com.zerob13.aipassport.proto.ScheduleItem
+import com.zerob13.aipassport.proto.SyncProtocol
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlin.math.abs
 
 data class CalendarEventRecord(
     val eventId: Long,
@@ -32,51 +33,46 @@ object CalendarSchedule {
         )
     }
 
-    fun todayItems(
+    fun deviceItems(
         events: List<CalendarEventRecord>,
         nowMs: Long,
         zoneId: ZoneId,
-        maxItems: Int = 32,
+        maxItems: Int = SyncProtocol.MAX_SCHEDULE_ITEMS,
     ): List<ScheduleItem> {
         require(maxItems > 0)
         val today = Instant.ofEpochMilli(nowMs).atZone(zoneId).toLocalDate()
-        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
-        val dayEnd = today.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
-
-        return events.asSequence()
-            .filter { event -> overlapsDay(event, today, dayStart, dayEnd) }
-            .sortedWith(compareBy<CalendarEventRecord> { it.allDay.not() }.thenBy { it.beginMs })
-            .take(maxItems)
-            .mapIndexed { index, event ->
-                val startMin = if (event.allDay) {
-                    0
-                } else {
-                    minuteOfDay(event.beginMs.coerceAtLeast(dayStart), zoneId).coerceAtMost(1438)
-                }
-                val endMin = if (event.allDay || event.endMs >= dayEnd) {
-                    23 * 60 + 59
-                } else {
-                    minuteOfDay(event.endMs, zoneId).coerceIn(startMin + 1, 1439)
-                }
-                ScheduleItem(index + 1, startMin, endMin, event.title)
+        val todayEpochDay = today.toEpochDay()
+        val calendarOrder = compareBy<ScheduleItem> { it.epochDay }
+            .thenBy { !it.allDay }
+            .thenBy { it.startMin }
+        val chronological = events.map { event ->
+            val eventZone = if (event.allDay) ZoneOffset.UTC else zoneId
+            val start = Instant.ofEpochMilli(event.beginMs).atZone(eventZone)
+            val end = Instant.ofEpochMilli(event.endMs).atZone(eventZone)
+            val startMin = if (event.allDay) 0 else
+                (start.hour * 60 + start.minute).coerceAtMost(1438)
+            val endMin = if (event.allDay || end.toLocalDate() != start.toLocalDate()) {
+                1439
+            } else {
+                (end.hour * 60 + end.minute).coerceIn(startMin + 1, 1439)
             }
-            .toList()
-    }
+            ScheduleItem(
+                id = 0,
+                epochDay = start.toLocalDate().toEpochDay().toInt(),
+                startMin = startMin,
+                endMin = endMin,
+                allDay = event.allDay,
+                title = event.title,
+            )
+        }.sortedWith(calendarOrder)
 
-    private fun overlapsDay(
-        event: CalendarEventRecord,
-        today: LocalDate,
-        dayStart: Long,
-        dayEnd: Long,
-    ): Boolean {
-        if (!event.allDay) return event.beginMs < dayEnd && event.endMs > dayStart
-        val startDate = Instant.ofEpochMilli(event.beginMs).atZone(ZoneOffset.UTC).toLocalDate()
-        val endDate = Instant.ofEpochMilli(event.endMs).atZone(ZoneOffset.UTC).toLocalDate()
-        return !today.isBefore(startDate) && today.isBefore(endDate)
-    }
-
-    private fun minuteOfDay(millis: Long, zoneId: ZoneId): Int {
-        val time = Instant.ofEpochMilli(millis).atZone(zoneId)
-        return time.hour * 60 + time.minute
+        val selected = if (chronological.size <= maxItems) chronological else {
+            chronological.sortedWith(
+                compareBy<ScheduleItem> { abs(it.epochDay.toLong() - todayEpochDay) }
+                    .thenBy { it.epochDay < todayEpochDay }
+                    .thenBy { it.startMin }
+            ).take(maxItems).sortedWith(calendarOrder)
+        }
+        return selected.mapIndexed { index, item -> item.copy(id = index + 1) }
     }
 }
