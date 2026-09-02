@@ -24,6 +24,7 @@ static const char *TAG = "main";
 
 #define FAP_SCREENSHOT_COMMAND "FAP_SCREENSHOT_V1\n"
 #define FAP_SCREENSHOT_HEADER_BYTES 64u
+#define FAP_SCREENSHOT_TX_CHUNK_BYTES 128u
 #define FAP_SCREENSHOT_PAYLOAD_BYTES \
     ((size_t)BSP_LCD_W * BSP_LCD_H * sizeof(uint16_t))
 
@@ -36,6 +37,22 @@ typedef struct {
 
 static lv_display_t *s_screenshot_display;
 static screenshot_capture_t s_screenshot;
+
+static bool screenshot_write(const void *data, size_t bytes)
+{
+    const uint8_t *cursor = data;
+    while (bytes > 0) {
+        size_t chunk = bytes > FAP_SCREENSHOT_TX_CHUNK_BYTES
+                           ? FAP_SCREENSHOT_TX_CHUNK_BYTES
+                           : bytes;
+        int sent = usb_serial_jtag_write_bytes(cursor, chunk,
+                                               pdMS_TO_TICKS(10000));
+        if (sent != (int)chunk) return false;
+        cursor += chunk;
+        bytes -= chunk;
+    }
+    return true;
+}
 
 // Stream each full-width LVGL render stripe before the panel driver swaps its
 // RGB565 bytes. This reuses the existing 20-row draw buffer instead of
@@ -63,9 +80,7 @@ static void screenshot_flush_event(lv_event_t *event)
         return;
     }
 
-    int sent = usb_serial_jtag_write_bytes(draw_buf->data, bytes,
-                                           pdMS_TO_TICKS(10000));
-    if (sent != (int)bytes) {
+    if (!screenshot_write(draw_buf->data, bytes)) {
         s_screenshot.failed = true;
         return;
     }
@@ -88,10 +103,9 @@ static bool send_screenshot(void)
     // in flight so no unrelated text can corrupt the declared payload.
     esp_log_level_t previous_log_level = esp_log_get_level_master();
     esp_log_set_level_master(ESP_LOG_NONE);
-    int header_sent = usb_serial_jtag_write_bytes(header, (size_t)header_len,
-                                                  pdMS_TO_TICKS(10000));
+    bool header_sent = screenshot_write(header, (size_t)header_len);
     memset(&s_screenshot, 0, sizeof(s_screenshot));
-    if (header_sent == header_len) {
+    if (header_sent) {
         s_screenshot.active = true;
         lv_obj_invalidate(lv_screen_active());
         lv_refr_now(s_screenshot_display);
