@@ -32,6 +32,7 @@ CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_USE_FONT_COMPRESSED=y
+CONFIG_LV_USE_SNAPSHOT=y
 # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
 # 同步应用:界面控件约 10KB + 中文字形缓存(LV_CACHE 默认 16KB)等,64KB 稳妥;
 # 若再调小,中文标题频繁渲染时可能分配失败(控件创建返回 NULL)。

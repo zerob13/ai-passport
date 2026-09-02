@@ -14,5 +14,5 @@ idf_component_register(
          "app_music.c"
          "ui_font_cjk_16.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp bt nvs_flash esp_timer
+    REQUIRES bsp bt nvs_flash esp_timer esp_driver_usb_serial_jtag
 )

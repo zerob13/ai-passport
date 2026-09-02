@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 新增社区发布助手要求的只读 `FAP_SCREENSHOT_V1` 串口截屏端点，仅在发布助手
+  发起请求时渲染并返回当前 DimOS 画面。
 - 新增通用 Android MediaSession 桥接：通过 BLE 同步 Spotify 及兼容播放器的歌曲、
   歌手、专辑、来源、播放状态、进度和 96×96 封面；固件新增带平滑进度的音乐页。
 - 将固件和配套 App 的用户可见品牌统一为 DimOS，同时保留 `FoloPassport` BLE 名称、

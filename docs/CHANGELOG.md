@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Added the read-only `FAP_SCREENSHOT_V1` serial capture endpoint required by
+  the community publisher; it renders and returns the active DimOS screen only
+  when the publisher requests it.
 - Added a generic Android MediaSession bridge that syncs Spotify and compatible
   players' track, artist, album, source, play state, progress, and 96×96 cover
   art over BLE; added a matching firmware Music page with smooth progress.
